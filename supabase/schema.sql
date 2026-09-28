@@ -255,6 +255,33 @@ create table if not exists public.announcements (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.social_posts (
+  id uuid primary key default uuid_generate_v4(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  created_by uuid references auth.users(id) on delete set null,
+  title text not null,
+  caption text not null,
+  hashtags text[] not null default '{}',
+  mentions text[] not null default '{}',
+  link text,
+  image_path text,
+  status text not null default 'draft' check (status in ('draft', 'ready_to_post', 'published', 'failed')),
+  audience_scope jsonb not null default '{"type":"all"}'::jsonb,
+  engagement jsonb not null default '{"views":0,"likes":0,"comments":0,"reposts":0,"clicks":0}'::jsonb,
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.social_post_recipients (
+  post_id uuid not null references public.social_posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'ready_to_post' check (status in ('ready_to_post', 'published', 'failed')),
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
 alter table public.organizations enable row level security;
 alter table public.profiles enable row level security;
 alter table public.roles enable row level security;
@@ -274,6 +301,8 @@ alter table public.positions enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.user_roles enable row level security;
 alter table public.announcements enable row level security;
+alter table public.social_posts enable row level security;
+alter table public.social_post_recipients enable row level security;
 
 -- Starter policies: organization isolation is extended by role/scope checks in a follow-up policy migration.
 create policy "profiles are visible to authenticated users" on public.profiles for select to authenticated using (true);
@@ -348,6 +377,28 @@ create policy "same organization positions" on public.positions for select to au
 create policy "own or admin audit logs" on public.audit_logs for select to authenticated using (actor_id = auth.uid() or public.is_org_admin());
 create policy "authenticated login audit" on public.audit_logs for insert to authenticated with check (actor_id = auth.uid() and organization_id = public.current_org_id());
 create policy "same organization announcements" on public.announcements for select to authenticated using (organization_id = public.current_org_id());
+create policy "visible social posts" on public.social_posts for select to authenticated using (
+  organization_id = public.current_org_id() and (
+    public.is_org_admin() or created_by = auth.uid() or audience_scope ->> 'type' = 'all' or
+    exists (select 1 from public.social_post_recipients spr where spr.post_id = social_posts.id and spr.user_id = auth.uid())
+  )
+);
+create policy "admin creates social posts" on public.social_posts for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin() and created_by = auth.uid());
+create policy "admin updates social posts" on public.social_posts for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id());
+create policy "visible post recipients" on public.social_post_recipients for select to authenticated using (
+  user_id = auth.uid() or public.is_org_admin() or exists (select 1 from public.social_posts sp where sp.id = post_id and sp.created_by = auth.uid())
+);
+create policy "admin assigns post recipients" on public.social_post_recipients for insert to authenticated with check (public.is_org_admin());
+create policy "users update own post status" on public.social_post_recipients for update to authenticated using (user_id = auth.uid() or public.is_org_admin()) with check (user_id = auth.uid() or public.is_org_admin());
+
+insert into storage.buckets (id, name, public)
+values ('social-posts', 'social-posts', true)
+on conflict (id) do update set public = true;
+
+create policy "public can view social posters" on storage.objects for select using (bucket_id = 'social-posts');
+create policy "admins upload social posters" on storage.objects for insert to authenticated with check (bucket_id = 'social-posts' and public.is_org_admin());
+create policy "admins update social posters" on storage.objects for update to authenticated using (bucket_id = 'social-posts' and public.is_org_admin()) with check (bucket_id = 'social-posts' and public.is_org_admin());
+create policy "admins delete social posters" on storage.objects for delete to authenticated using (bucket_id = 'social-posts' and public.is_org_admin());
 
 -- One-time bootstrap for the owner account. It never accepts a role or organization from the browser.
 create or replace function public.bootstrap_dialgrow_workspace()
