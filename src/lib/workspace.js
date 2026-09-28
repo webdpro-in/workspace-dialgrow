@@ -12,15 +12,16 @@ export const roleDefaults = {
 export async function loadWorkspace(user) {
   if (!supabase) throw new Error('Supabase is not configured. Add the project URL and publishable key.');
 
-  const profileResult = await supabase
-    .from('profiles')
-    .select('*, user_roles(is_primary, roles(id, name, layer, description, dashboard_template, responsibilities, visibility_scope))')
-    .eq('id', user.id)
-    .maybeSingle();
+  const [profileResult, membershipsResult] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+    supabase.from('user_roles').select('is_primary, roles(id, name, layer, description, dashboard_template, responsibilities, visibility_scope)').eq('user_id', user.id),
+  ]);
 
   if (profileResult.error) throw profileResult.error;
+  if (membershipsResult.error) throw membershipsResult.error;
   const profile = profileResult.data;
-  const role = profile?.user_roles?.find((item) => item.is_primary)?.roles || profile?.user_roles?.[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
+  const memberships = membershipsResult.data || [];
+  const role = memberships.find((item) => item.is_primary)?.roles || memberships[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
 
   const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, postsResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
