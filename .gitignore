@@ -1,3 +1,5 @@
+supabase/.temp/
+.waspid/
 node_modules
 dist
 .DS_Store
