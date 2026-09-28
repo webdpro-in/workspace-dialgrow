@@ -301,10 +301,10 @@ as $$ select organization_id from public.profiles where id = auth.uid() $$;
 create or replace function public.is_org_admin()
 returns boolean language sql stable security definer set search_path = public
 as $$
-  select exists (
+  select lower(auth.jwt() ->> 'email') = 'business@dialgrow.com' and exists (
     select 1 from public.user_roles ur
     join public.roles r on r.id = ur.role_id
-    where ur.user_id = auth.uid() and r.name in ('Main Admin', 'Admin', 'Super Admin')
+    where ur.user_id = auth.uid() and r.name = 'Main Admin'
   )
 $$;
 
@@ -357,7 +357,7 @@ declare
   org_id uuid;
   admin_role_id uuid;
 begin
-  if auth.uid() is null or lower(auth.jwt() ->> 'email') <> 'durga@dialgrow.com' then
+  if auth.uid() is null or lower(auth.jwt() ->> 'email') <> 'business@dialgrow.com' then
     raise exception 'Only the DialGrow owner account can bootstrap this workspace';
   end if;
   insert into public.organizations (name, slug) values ('DialGrow', 'dialgrow')

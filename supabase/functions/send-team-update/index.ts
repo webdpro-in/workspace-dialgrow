@@ -11,15 +11,19 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
     const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const { organizationId, fridayPrompt = false } = await request.json();
-    if (!organizationId) throw new Error('organizationId is required');
-    const { data: channel } = await client.from('channels').select('id').eq('organization_id', organizationId).eq('channel_type', 'announcement').limit(1).maybeSingle();
-    if (!channel) throw new Error('Create an announcement channel before scheduling updates');
+    const payload = await request.json().catch(() => ({}));
+    const fridayPrompt = Boolean(payload.fridayPrompt);
+    const organizations = payload.organizationId ? [{ id: payload.organizationId }] : (await client.from('organizations').select('id')).data || [];
+    if (!organizations.length) throw new Error('No DialGrow organizations are available');
     const body = fridayPrompt ? 'Friday check-in: what moved forward this week, what is still blocked, and what is the one thing your team should carry into next week?' : updates[Math.floor(Math.random() * updates.length)];
-    const { error } = await client.from('messages').insert({ channel_id: channel.id, body, author_id: null });
-    if (error) throw error;
-    await client.from('announcements').insert({ organization_id: organizationId, author_name: 'Priya Sharma', title: fridayPrompt ? 'Weekly update prompt' : 'Updated for today', body, scheduled_for: new Date().toISOString() });
-    return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    for (const organization of organizations) {
+      const { data: channel } = await client.from('channels').select('id').eq('organization_id', organization.id).eq('channel_type', 'announcement').limit(1).maybeSingle();
+      if (!channel) continue;
+      const { error } = await client.from('messages').insert({ channel_id: channel.id, body, author_id: null });
+      if (error) throw error;
+      await client.from('announcements').insert({ organization_id: organization.id, author_name: 'Priya Sharma', title: fridayPrompt ? 'Weekly update prompt' : 'Updated for today', body, scheduled_for: new Date().toISOString() });
+    }
+    return new Response(JSON.stringify({ ok: true, organizations: organizations.length, author: 'Priya Sharma' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unable to send update' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
