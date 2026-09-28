@@ -106,6 +106,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .post-tags span { color: #148b43; font-size: 8px; }
 .post-metrics { display: flex; align-items: center; gap: 5px; color: #95a198; font-size: 8px; }
 .post-share-button { min-height: 29px; padding: 0 9px; font-size: 9px; }
+.profile-dg-id { margin: 8px 0 2px !important; color: #148b43 !important; font-family: 'Space Grotesk'; font-size: 11px !important; font-weight: 700; letter-spacing: .4px; }
 .live-role-manager { display: grid; grid-template-columns: .85fr 1.15fr; gap: 15px; }
 .role-builder-form { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px; }
 .role-builder-form label { display: flex; flex-direction: column; gap: 7px; color: #6d796f; font-size: 10px; font-weight: 700; }
@@ -121,3 +122,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (max-width: 720px) { .post-composer-form, .post-grid { grid-template-columns: 1fr; }.post-page-intro { flex-direction: column; }.post-form-side { padding: 13px; } }
 @media (max-width: 900px) { .live-role-manager { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .role-assignment-row { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.role-builder-submit { width: 100%; margin-top: 0; } }
+
+/* Landing page readability and floating navigation. */
+.landing-page .landing-nav { position: fixed; z-index: 20; top: 16px; left: 50%; width: min(calc(100% - 48px), 1180px); height: 70px; padding: 0 24px; border: 1px solid rgba(182, 236, 198, .16); border-radius: 18px; background: rgba(14, 32, 25, .82); box-shadow: 0 16px 42px rgba(0, 0, 0, .22); backdrop-filter: blur(18px); transform: translateX(-50%); }
+.landing-page .landing-main { padding-top: 94px; }
+.landing-page .landing-eyebrow { font-size: 10px; }
+.landing-page .landing-hero h1 { max-width: 650px; font-size: clamp(54px, 6.3vw, 82px); }
+.landing-page .landing-hero-copy > p { font-size: 17px; }
+.landing-page .landing-primary, .landing-page .landing-secondary, .landing-page .landing-login { font-size: 12px; }
+.landing-page .landing-proof { font-size: 11px; }
+.landing-page .landing-strip { font-size: 13px; }
+.landing-page .landing-bottom p { font-size: 15px; }
+@media (max-width: 720px) { .landing-page .landing-nav { top: 10px; width: calc(100% - 24px); height: 62px; padding: 0 16px; border-radius: 14px; }.landing-page .landing-main { padding-top: 72px; }.landing-page .landing-hero h1 { font-size: 48px; }.landing-page .landing-hero-copy > p { font-size: 14px; }.landing-page .landing-strip { font-size: 11px; } }

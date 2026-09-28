@@ -64,6 +64,7 @@ create table if not exists public.teams (
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   organization_id uuid references public.organizations(id) on delete set null,
+  dg_id text unique,
   full_name text not null,
   email text not null,
   initials text,
@@ -81,6 +82,8 @@ alter table public.profiles add column if not exists work_start_time time not nu
 alter table public.profiles add column if not exists work_end_time time not null default '18:30';
 alter table public.profiles add column if not exists work_days smallint[] not null default '{1,2,3,4,5}';
 alter table public.profiles add column if not exists timezone text not null default 'Asia/Kolkata';
+alter table public.profiles add column if not exists dg_id text;
+create unique index if not exists profiles_dg_id_key on public.profiles (lower(dg_id)) where dg_id is not null;
 
 create table if not exists public.user_roles (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -432,9 +435,9 @@ begin
     (org_id, 'Full Stack Developer', 'Technical', 'Executes product work and contributes to technical delivery.', 'technical', 'team', 'active', array['Own technical tasks', 'Attach code and resources', 'Submit work for review']),
     (org_id, 'Customer Success', 'Business', 'Connects customer context to tasks, handoffs and growth outcomes.', 'employee', 'team', 'active', array['Manage customer tasks', 'Share permitted documents', 'Coordinate account follow-ups'])
   on conflict (organization_id, name) do update set description = excluded.description, responsibilities = excluded.responsibilities, status = 'active';
-  insert into public.profiles (id, organization_id, full_name, email, initials, job_title, timezone)
-  values (auth.uid(), org_id, coalesce(auth.jwt() -> 'user_metadata' ->> 'full_name', 'Durga Prashad'), lower(auth.jwt() ->> 'email'), 'DP', 'Main Admin', 'Asia/Kolkata')
-  on conflict (id) do update set organization_id = excluded.organization_id, job_title = 'Main Admin';
+  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, timezone)
+  values (auth.uid(), org_id, 'dg-0001', coalesce(auth.jwt() -> 'user_metadata' ->> 'full_name', 'Durga Prashad'), lower(auth.jwt() ->> 'email'), 'BA', 'Main Admin', 'Asia/Kolkata')
+  on conflict (id) do update set organization_id = excluded.organization_id, dg_id = coalesce(public.profiles.dg_id, excluded.dg_id), job_title = 'Main Admin';
   select id into admin_role_id from public.roles where organization_id = org_id and name = 'Main Admin';
   insert into public.user_roles (user_id, role_id, is_primary) values (auth.uid(), admin_role_id, true) on conflict (user_id, role_id) do update set is_primary = true;
   insert into public.channels (organization_id, name, description, channel_type) values (org_id, 'general', 'DialGrow-wide updates and announcements', 'announcement') on conflict do nothing;
@@ -443,6 +446,52 @@ end;
 $$;
 
 grant execute on function public.bootstrap_dialgrow_workspace() to authenticated;
+
+-- DG IDs are the employee-facing login identifier; Auth still uses the private email behind it.
+create or replace function public.resolve_employee_login(lookup_dg_id text)
+returns text language sql stable security definer set search_path = public
+as $$ select email from public.profiles where lower(dg_id) = lower(trim(lookup_dg_id)) limit 1 $$;
+revoke all on function public.resolve_employee_login(text) from public;
+grant execute on function public.resolve_employee_login(text) to anon, authenticated;
+
+create or replace function public.assign_employee_dg_id(target_user_id uuid, new_dg_id text)
+returns boolean language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_org_admin() then raise exception 'Only the Main Admin can assign DG IDs'; end if;
+  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4,}$' then raise exception 'DG ID must use the format dg-####'; end if;
+  if not exists (select 1 from public.profiles where id = target_user_id and organization_id = public.current_org_id()) then raise exception 'Employee is not in the current organization'; end if;
+  update public.profiles set dg_id = lower(trim(new_dg_id)) where id = target_user_id;
+  return true;
+end;
+$$;
+revoke all on function public.assign_employee_dg_id(uuid, text) from public;
+grant execute on function public.assign_employee_dg_id(uuid, text) to authenticated;
+
+create or replace function public.provision_employee(target_user_id uuid, new_dg_id text, employee_name text, login_email text, role_name text)
+returns uuid language plpgsql security definer set search_path = public, auth
+as $$
+declare
+  org_id uuid;
+  selected_role_id uuid;
+begin
+  if not public.is_org_admin() then raise exception 'Only the Main Admin can provision employees'; end if;
+  org_id := public.current_org_id();
+  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4,}$' then raise exception 'DG ID must use the format dg-####'; end if;
+  if not exists (select 1 from auth.users where id = target_user_id) then raise exception 'Auth account was not created'; end if;
+  if exists (select 1 from public.profiles where lower(dg_id) = lower(trim(new_dg_id))) then raise exception 'That DG ID is already assigned'; end if;
+  select id into selected_role_id from public.roles where organization_id = org_id and name = role_name and status = 'active';
+  if selected_role_id is null then raise exception 'Selected role is not available'; end if;
+  update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), raw_user_meta_data = jsonb_set(coalesce(raw_user_meta_data, '{}'::jsonb), '{full_name}', to_jsonb(employee_name)), updated_at = now() where id = target_user_id;
+  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status)
+  values (target_user_id, org_id, lower(trim(new_dg_id)), employee_name, lower(trim(login_email)), upper(left(regexp_replace(employee_name, '[^A-Za-z]', '', 'g'), 2)), role_name, 'active');
+  insert into public.user_roles (user_id, role_id, is_primary) values (target_user_id, selected_role_id, true);
+  insert into public.audit_logs (organization_id, actor_id, action, object_type, object_id, metadata) values (org_id, auth.uid(), 'employee_created', 'profile', target_user_id, jsonb_build_object('dgId', lower(trim(new_dg_id)), 'roleName', role_name));
+  return target_user_id;
+end;
+$$;
+revoke all on function public.provision_employee(uuid, text, text, text, text) from public;
+grant execute on function public.provision_employee(uuid, text, text, text, text) to authenticated;
 
 -- Realtime publication for collaboration surfaces.
 alter publication supabase_realtime add table public.tasks;

@@ -30,7 +30,7 @@ export async function loadWorkspace(user) {
     supabase.from('attendance').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('audit_logs').select('*').eq('actor_id', user.id).eq('action', 'login').order('created_at', { ascending: false }).limit(8),
     supabase.from('roles').select('*').order('name'),
-    supabase.from('profiles').select('id, full_name, email, job_title, avatar_color, status').order('full_name'),
+    supabase.from('profiles').select('id, dg_id, full_name, email, job_title, avatar_color, status').order('full_name'),
     supabase.from('user_roles').select('user_id, is_primary, roles(id, name)').eq('is_primary', true),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
   ]);
