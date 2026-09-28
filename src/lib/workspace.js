@@ -23,7 +23,7 @@ export async function loadWorkspace(user) {
   const memberships = membershipsResult.data || [];
   const role = memberships.find((item) => item.is_primary)?.roles || memberships[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
 
-  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, postsResult] = await Promise.all([
+  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, postsResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('teams').select('*').order('name'),
     supabase.from('channels').select('*').order('created_at'),
@@ -31,10 +31,11 @@ export async function loadWorkspace(user) {
     supabase.from('audit_logs').select('*').eq('actor_id', user.id).eq('action', 'login').order('created_at', { ascending: false }).limit(8),
     supabase.from('roles').select('*').order('name'),
     supabase.from('profiles').select('id, full_name, email, job_title, avatar_color, status').order('full_name'),
+    supabase.from('user_roles').select('user_id, is_primary, roles(id, name)').eq('is_primary', true),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
   ]);
 
-  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, postsResult].find((result) => result.error);
+  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, postsResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
   return {
@@ -45,7 +46,7 @@ export async function loadWorkspace(user) {
     attendance: attendanceResult.data || null,
     logins: auditResult.data || [],
     roles: rolesResult.data || [],
-    members: membersResult.data || [],
+    members: (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null })),
     posts: postsResult.data || [],
   };
 }

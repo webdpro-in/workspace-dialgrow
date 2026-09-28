@@ -355,7 +355,11 @@ drop policy if exists "authenticated users can read positions" on public.positio
 
 create policy "same organization profiles" on public.profiles for select to authenticated using (organization_id = public.current_org_id());
 create policy "same organization roles" on public.roles for select to authenticated using (organization_id = public.current_org_id());
+create policy "admin creates roles" on public.roles for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
+create policy "admin updates roles" on public.roles for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "own or admin role memberships" on public.user_roles for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
+create policy "admin assigns roles" on public.user_roles for insert to authenticated with check (public.is_org_admin());
+create policy "admin updates role assignments" on public.user_roles for update to authenticated using (public.is_org_admin()) with check (public.is_org_admin());
 create policy "same organization teams" on public.teams for select to authenticated using (organization_id = public.current_org_id());
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
 create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
@@ -377,17 +381,23 @@ create policy "same organization positions" on public.positions for select to au
 create policy "own or admin audit logs" on public.audit_logs for select to authenticated using (actor_id = auth.uid() or public.is_org_admin());
 create policy "authenticated login audit" on public.audit_logs for insert to authenticated with check (actor_id = auth.uid() and organization_id = public.current_org_id());
 create policy "same organization announcements" on public.announcements for select to authenticated using (organization_id = public.current_org_id());
+create schema if not exists private;
+revoke all on schema private from public;
+create or replace function private.can_view_social_post(post_uuid uuid, viewer_uuid uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists (select 1 from public.social_post_recipients where post_id = post_uuid and user_id = viewer_uuid) $$;
+revoke all on function private.can_view_social_post(uuid, uuid) from public;
+grant execute on function private.can_view_social_post(uuid, uuid) to authenticated;
+
 create policy "visible social posts" on public.social_posts for select to authenticated using (
   organization_id = public.current_org_id() and (
     public.is_org_admin() or created_by = auth.uid() or audience_scope ->> 'type' = 'all' or
-    exists (select 1 from public.social_post_recipients spr where spr.post_id = social_posts.id and spr.user_id = auth.uid())
+    private.can_view_social_post(id, auth.uid())
   )
 );
 create policy "admin creates social posts" on public.social_posts for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin() and created_by = auth.uid());
 create policy "admin updates social posts" on public.social_posts for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id());
-create policy "visible post recipients" on public.social_post_recipients for select to authenticated using (
-  user_id = auth.uid() or public.is_org_admin() or exists (select 1 from public.social_posts sp where sp.id = post_id and sp.created_by = auth.uid())
-);
+create policy "visible post recipients" on public.social_post_recipients for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "admin assigns post recipients" on public.social_post_recipients for insert to authenticated with check (public.is_org_admin());
 create policy "users update own post status" on public.social_post_recipients for update to authenticated using (user_id = auth.uid() or public.is_org_admin()) with check (user_id = auth.uid() or public.is_org_admin());
 

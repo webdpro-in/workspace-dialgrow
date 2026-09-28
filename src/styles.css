@@ -106,4 +106,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .post-tags span { color: #148b43; font-size: 8px; }
 .post-metrics { display: flex; align-items: center; gap: 5px; color: #95a198; font-size: 8px; }
 .post-share-button { min-height: 29px; padding: 0 9px; font-size: 9px; }
+.live-role-manager { display: grid; grid-template-columns: .85fr 1.15fr; gap: 15px; }
+.role-builder-form { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px; }
+.role-builder-form label { display: flex; flex-direction: column; gap: 7px; color: #6d796f; font-size: 10px; font-weight: 700; }
+.role-builder-form input, .role-builder-form textarea, .role-builder-form select, .role-assignment-row select { width: 100%; min-height: 36px; padding: 8px 9px; color: #27342b; border: 1px solid #dfe8e0; border-radius: 6px; outline: 0; background: #fbfdfb; font: inherit; font-weight: 400; }
+.role-builder-form textarea { resize: vertical; }
+.role-builder-submit { align-self: end; min-height: 36px; margin-top: 17px; }
+.role-assignment-list { padding: 0 20px 10px; }
+.role-assignment-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px auto; align-items: center; gap: 10px; min-height: 58px; border-top: 1px solid #eef2ee; }
+.role-assignment-row > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.role-assignment-row strong { overflow: hidden; color: #3a473e; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.role-assignment-row small { overflow: hidden; color: #99a49c; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.role-assignment-row .quiet-action { display: inline-flex; gap: 4px; align-items: center; justify-content: center; min-height: 32px; padding: 0 8px; font-size: 9px; }
 @media (max-width: 720px) { .post-composer-form, .post-grid { grid-template-columns: 1fr; }.post-page-intro { flex-direction: column; }.post-form-side { padding: 13px; } }
+@media (max-width: 900px) { .live-role-manager { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .role-assignment-row { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.role-builder-submit { width: 100%; margin-top: 0; } }
