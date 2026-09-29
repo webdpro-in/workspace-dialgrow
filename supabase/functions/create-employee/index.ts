@@ -63,7 +63,8 @@ Deno.serve(async (request) => {
     const { data: targetRole, error: targetRoleError } = await adminClient.from('roles').select('id, name, dashboard_template').eq('organization_id', orgId).eq('name', roleName).eq('status', 'active').single();
     if (targetRoleError || !targetRole) throw new Error('Selected role is not available');
     if (!isMainAdmin && targetRole.name === 'Main Admin') throw new Error('Team leads cannot create Main Admin accounts');
-    if (!isMainAdmin && !teamId) throw new Error('Select the team this employee will join');
+    // Team placement is optional. Leads can create the credential first and
+    // assign the employee to a team later from the workspace controls.
     if (teamId) {
       const { data: team, error: teamError } = await adminClient.from('teams').select('id, organization_id, lead_id').eq('id', teamId).eq('organization_id', orgId).single();
       if (teamError || !team) throw new Error('Selected team is not in your workspace');
