@@ -30,14 +30,20 @@ Deno.serve(async (request) => {
     const callerClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
     const { data: { user: caller } } = await callerClient.auth.getUser();
     if (!caller) throw new Error('Not authenticated');
-    const { data: callerProfile, error: callerProfileError } = await adminClient.from('profiles').select('organization_id').eq('id', caller.id).single();
+    const { data: callerProfile, error: callerProfileError } = await adminClient.from('profiles').select('organization_id, employee_creation_limit').eq('id', caller.id).single();
     if (callerProfileError || !callerProfile?.organization_id) throw new Error('Your workspace profile is not initialized');
-    const { data: callerRoles, error: callerRolesError } = await adminClient.from('user_roles').select('roles(name, dashboard_template)').eq('user_id', caller.id);
+    const { data: callerRoles, error: callerRolesError } = await adminClient.from('user_roles').select('roles(name, dashboard_template, can_create_employees)').eq('user_id', caller.id);
     if (callerRolesError) throw callerRolesError;
-    const roleRecords = (callerRoles || []).map((item: { roles?: { name?: string; dashboard_template?: string } }) => item.roles).filter(Boolean);
+    const roleRecords = (callerRoles || []).map((item: { roles?: { name?: string; dashboard_template?: string; can_create_employees?: boolean } }) => item.roles).filter(Boolean);
     const isMainAdmin = roleRecords.some((role) => role?.name === 'Main Admin');
-    const leadRole = roleRecords.find((role) => ['Team Lead', 'Technical Lead', 'Operations Lead'].includes(role?.name || ''));
+    const leadRole = roleRecords.find((role) => ['Team Lead', 'Technical Lead', 'Operations Lead'].includes(role?.name || '') || role?.can_create_employees);
     if (!isMainAdmin && !leadRole) throw new Error('Only a Main Admin or team lead can create employee accounts');
+    if (!isMainAdmin) {
+      const { count: createdCount, error: countError } = await adminClient.from('profiles').select('id', { count: 'exact', head: true }).eq('organization_id', callerProfile.organization_id).eq('created_by', caller.id);
+      if (countError) throw countError;
+      const creationLimit = callerProfile.employee_creation_limit || 4;
+      if ((createdCount || 0) >= creationLimit) throw new Error(`Employee creation limit reached (${creationLimit}). Request approval from Main Admin.`);
+    }
 
     const { email: rawEmail, dgId: rawDgId, password, fullName, roleName, teamId } = await request.json();
     let dgId = rawDgId?.trim().toLowerCase();
@@ -70,7 +76,7 @@ Deno.serve(async (request) => {
     if (createError) throw createError;
     const userId = created.user.id;
     try {
-      const { error: profileError } = await adminClient.from('profiles').insert({ id: userId, organization_id: orgId, dg_id: dgId, full_name: fullName, email, initials: fullName.split(/\s+/).map((part: string) => part[0]).join('').slice(0, 2).toUpperCase(), job_title: roleName, status: 'active' });
+      const { error: profileError } = await adminClient.from('profiles').insert({ id: userId, organization_id: orgId, dg_id: dgId, full_name: fullName, email, initials: fullName.split(/\s+/).map((part: string) => part[0]).join('').slice(0, 2).toUpperCase(), job_title: roleName, status: 'active', created_by: caller.id });
       if (profileError) throw profileError;
       const { error: roleError } = await adminClient.from('user_roles').insert({ user_id: userId, role_id: targetRole.id, is_primary: true });
       if (roleError) throw roleError;

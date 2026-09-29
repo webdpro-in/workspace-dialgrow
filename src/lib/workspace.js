@@ -14,7 +14,7 @@ export async function loadWorkspace(user) {
 
   const [profileResult, membershipsResult] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-    supabase.from('user_roles').select('is_primary, roles(id, name, layer, description, dashboard_template, responsibilities, visibility_scope)').eq('user_id', user.id),
+    supabase.from('user_roles').select('is_primary, roles(id, name, layer, description, dashboard_template, responsibilities, visibility_scope, can_create_roles, can_create_teams, can_create_employees, metadata)').eq('user_id', user.id),
   ]);
 
   if (profileResult.error) throw profileResult.error;
@@ -23,23 +23,24 @@ export async function loadWorkspace(user) {
   const memberships = membershipsResult.data || [];
   const role = memberships.find((item) => item.is_primary)?.roles || memberships[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
 
-  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult] = await Promise.all([
+  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('teams').select('*').order('name'),
     supabase.from('channels').select('*').order('created_at'),
     supabase.from('attendance').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('audit_logs').select('*').eq('actor_id', user.id).eq('action', 'login').order('created_at', { ascending: false }).limit(8),
     supabase.from('roles').select('*').order('name'),
-    supabase.from('profiles').select('id, dg_id, full_name, email, job_title, avatar_color, status').order('full_name'),
+    supabase.from('profiles').select('id, dg_id, full_name, email, job_title, avatar_color, status, employee_creation_limit, created_by').order('full_name'),
     supabase.from('user_roles').select('user_id, is_primary, roles(id, name)').eq('is_primary', true),
     supabase.from('team_members').select('team_id, user_id'),
     supabase.from('channel_members').select('channel_id, user_id'),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
     supabase.from('documents').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('team_updates').select('*').order('created_at', { ascending: false }).limit(100),
+    supabase.from('employee_creation_requests').select('*').order('created_at', { ascending: false }).limit(50),
   ]);
 
-  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult].find((result) => result.error);
+  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
   const members = (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null }));
@@ -59,6 +60,7 @@ export async function loadWorkspace(user) {
     posts: postsResult.data || [],
     documents: documentsResult.data || [],
     updates: updatesResult.data || [],
+    creationRequests: creationRequestsResult.data || [],
   };
 }
 

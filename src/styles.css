@@ -163,6 +163,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .live-inline-form select:focus { border-color: #25d366; }
 .generated-id-note { display: flex; align-items: center; gap: 7px; margin: 0 0 16px; padding: 10px 12px; color: #397452; border: 1px solid #d4ead8; border-radius: 7px; background: #f1fbf3; font-size: 10px; }
 .generated-id-note svg { color: #20a857; }
+.role-capability-checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 20px 14px; }
+.role-capability-checks label { display: flex; align-items: center; gap: 6px; margin: 0; padding: 9px; color: #5c6d61; border: 1px solid #e2eae3; border-radius: 7px; background: #f8fbf8; font-size: 9px; font-weight: 600; }
+.role-capability-checks input { width: auto; height: auto; accent-color: #20ae55; }
+.live-chat-members { display: grid; grid-template-columns: 1fr 240px auto; gap: 10px; align-items: end; padding: 12px 18px; border-bottom: 1px solid #edf2ed; background: #fbfefb; }
+.live-chat-members > div { display: flex; flex-direction: column; gap: 4px; }
+.live-chat-members strong { color: #42564a; font-size: 10px; }
+.live-chat-members small { color: #91a097; font-size: 9px; }
+.live-chat-members select { min-height: 38px; padding: 7px; border: 1px solid #dce8de; border-radius: 6px; background: #fff; color: #35483c; font-size: 9px; }
+.approval-panel { padding-bottom: 8px; }
+.approval-list { padding: 0 20px; }
+.approval-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 12px 0; border-top: 1px solid #eef2ee; }
+.approval-row > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.approval-row strong { color: #3f5044; font-size: 11px; }
+.approval-row small { color: #8d9a91; font-size: 9px; }
+.approval-hint { display: flex; align-items: center; gap: 7px; margin: 0 20px 12px; padding: 9px 11px; color: #5f7665; border: 1px solid #dbe9dd; border-radius: 7px; background: #f4faf5; font-size: 9px; }
+.approval-hint svg { color: #20a857; }
 .icon-danger { display: inline-grid; place-items: center; padding: 3px; border: 0; background: transparent; color: #bd5149; cursor: pointer; }
 .post-card-foot { align-items: center; gap: 10px; }
 .post-card-foot > button { white-space: nowrap; }

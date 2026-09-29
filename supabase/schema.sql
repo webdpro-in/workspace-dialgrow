@@ -32,10 +32,19 @@ create table if not exists public.roles (
   dashboard_template text not null default 'employee',
   responsibilities text[] not null default '{}',
   visibility_scope text not null default 'own',
+  can_create_roles boolean not null default false,
+  can_create_teams boolean not null default false,
+  can_create_employees boolean not null default false,
+  metadata jsonb not null default '{}'::jsonb,
   status public.role_status not null default 'draft',
   created_at timestamptz not null default now(),
   unique(organization_id, name)
 );
+
+alter table public.roles add column if not exists can_create_roles boolean not null default false;
+alter table public.roles add column if not exists can_create_teams boolean not null default false;
+alter table public.roles add column if not exists can_create_employees boolean not null default false;
+alter table public.roles add column if not exists metadata jsonb not null default '{}'::jsonb;
 
 create table if not exists public.permissions (
   id uuid primary key default uuid_generate_v4(),
@@ -75,6 +84,8 @@ create table if not exists public.profiles (
   work_end_time time not null default '18:30',
   work_days smallint[] not null default '{1,2,3,4,5}',
   timezone text not null default 'Asia/Kolkata',
+  created_by uuid references auth.users(id) on delete set null,
+  employee_creation_limit integer not null default 4 check (employee_creation_limit between 4 and 10000),
   created_at timestamptz not null default now()
 );
 
@@ -83,6 +94,8 @@ alter table public.profiles add column if not exists work_end_time time not null
 alter table public.profiles add column if not exists work_days smallint[] not null default '{1,2,3,4,5}';
 alter table public.profiles add column if not exists timezone text not null default 'Asia/Kolkata';
 alter table public.profiles add column if not exists dg_id text;
+alter table public.profiles add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.profiles add column if not exists employee_creation_limit integer not null default 4;
 create unique index if not exists profiles_dg_id_key on public.profiles (lower(dg_id)) where dg_id is not null;
 
 create table if not exists public.user_roles (
@@ -98,6 +111,23 @@ create table if not exists public.team_members (
   membership_scope jsonb not null default '{}'::jsonb,
   primary key (team_id, user_id)
 );
+
+create table if not exists public.employee_creation_requests (
+  id uuid primary key default uuid_generate_v4(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  requested_by uuid not null references auth.users(id) on delete cascade,
+  requester_role_id uuid references public.roles(id) on delete set null,
+  current_limit integer not null default 4,
+  requested_slots integer not null default 4 check (requested_slots between 1 and 100),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  reviewer_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists one_pending_employee_request_per_user on public.employee_creation_requests(requested_by) where status = 'pending';
+grant select, insert on public.employee_creation_requests to authenticated;
 
 create table if not exists public.projects (
   id uuid primary key default uuid_generate_v4(),
@@ -326,6 +356,7 @@ alter table public.profiles enable row level security;
 alter table public.roles enable row level security;
 alter table public.teams enable row level security;
 alter table public.team_members enable row level security;
+alter table public.employee_creation_requests enable row level security;
 alter table public.projects enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_comments enable row level security;
@@ -375,6 +406,46 @@ as $$
     select 1 from public.user_roles ur
     join public.roles r on r.id = ur.role_id
     where ur.user_id = auth.uid() and r.name = 'Main Admin'
+  )
+$$;
+
+create or replace function public.has_role_capability(capability text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select public.is_org_admin() or exists (
+    select 1
+    from public.user_roles ur
+    join public.roles r on r.id = ur.role_id
+    where ur.user_id = auth.uid()
+      and ur.is_primary = true
+      and (
+        (capability = 'roles' and r.can_create_roles)
+        or (capability = 'teams' and r.can_create_teams)
+        or (capability = 'employees' and r.can_create_employees)
+        or (capability in ('roles', 'teams', 'employees') and r.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead'))
+      )
+  )
+$$;
+
+create or replace function public.can_create_common_note()
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select public.is_org_admin() or exists (
+    select 1
+    from public.user_roles ur
+    join public.roles r on r.id = ur.role_id
+    where ur.user_id = auth.uid()
+      and ur.is_primary = true
+      and r.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
+  )
+$$;
+
+create or replace function public.can_manage_channel(channel_uuid uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select public.is_org_admin() or exists (
+    select 1 from public.channels c
+    where c.id = channel_uuid and c.created_by = auth.uid()
   )
 $$;
 
@@ -432,20 +503,15 @@ create policy "same organization profiles" on public.profiles for select to auth
 create policy "admins update workspace profiles" on public.profiles for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "same organization roles" on public.roles for select to authenticated using (organization_id = public.current_org_id());
 create policy "admin creates roles" on public.roles for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
-create policy "team leads create roles" on public.roles for insert to authenticated with check (
-  organization_id = public.current_org_id()
-  and exists (
-    select 1 from public.user_roles ur
-    join public.roles creator_role on creator_role.id = ur.role_id
-    where ur.user_id = auth.uid() and ur.is_primary = true
-      and creator_role.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
-  )
-);
+create policy "team leads create roles" on public.roles for insert to authenticated with check (organization_id = public.current_org_id() and public.has_role_capability('roles'));
 create policy "admin updates roles" on public.roles for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "own or admin role memberships" on public.user_roles for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "admin assigns roles" on public.user_roles for insert to authenticated with check (public.is_org_admin());
 create policy "admin updates role assignments" on public.user_roles for update to authenticated using (public.is_org_admin()) with check (public.is_org_admin());
 create policy "same organization teams" on public.teams for select to authenticated using (organization_id = public.current_org_id());
+create policy "leaders create teams" on public.teams for insert to authenticated with check (organization_id = public.current_org_id() and lead_id = auth.uid() and public.has_role_capability('teams'));
+create policy "leaders update teams" on public.teams for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or lead_id = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or lead_id = auth.uid()));
+create policy "leaders delete teams" on public.teams for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or lead_id = auth.uid()));
 create policy "team members visible in scope" on public.team_members for select to authenticated using (
   user_id = auth.uid() or exists (
     select 1 from public.teams t
@@ -457,7 +523,7 @@ create policy "visible channel members" on public.channel_members for select to 
 create policy "owners add channel members" on public.channel_members for insert to authenticated with check (added_by = auth.uid() and (public.is_org_admin() or exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id() and c.created_by = auth.uid())));
 create policy "owners remove channel members" on public.channel_members for delete to authenticated using (public.is_org_admin() or exists (select 1 from public.channels c where c.id = channel_id and c.created_by = auth.uid()));
 create policy "admins assign team members" on public.team_members for insert to authenticated with check (
-  public.is_org_admin() and exists (
+  (public.is_org_admin() or exists (select 1 from public.teams own_team where own_team.id = team_id and own_team.lead_id = auth.uid())) and exists (
     select 1 from public.teams t
     where t.id = team_id and t.organization_id = public.current_org_id()
   )
@@ -465,27 +531,20 @@ create policy "admins assign team members" on public.team_members for insert to 
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
 create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
 create policy "own attendance update" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
-create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and (team_id is null or public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid())));
-create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and creator_id = auth.uid());
+create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and (team_id is null or public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid()) or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
+create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and creator_id = auth.uid() and ((team_id is null and public.can_create_common_note()) or (team_id is not null and (public.is_org_admin() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid()) or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())))));
 create policy "scoped task updates" on public.tasks for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid()));
 create policy "scoped task deletes" on public.tasks for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
 create policy "same organization task comments" on public.task_comments for select to authenticated using (exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
 create policy "scoped task comments" on public.task_comments for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
 drop policy if exists "same organization channels" on public.channels;
-create policy "visible channels" on public.channels for select to authenticated using (public.can_access_channel(id, auth.uid()));
-create policy "admin creates channels" on public.channels for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
-create policy "leaders create channels" on public.channels for insert to authenticated with check (
+drop policy if exists "visible channels" on public.channels;
+create policy "visible channels" on public.channels for select to authenticated using (
   organization_id = public.current_org_id()
-  and created_by = auth.uid()
-  and exists (
-    select 1
-    from public.user_roles ur
-    join public.roles r on r.id = ur.role_id
-    where ur.user_id = auth.uid()
-      and ur.is_primary = true
-      and r.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
-  )
+  and (access_scope = 'organization' or created_by = auth.uid() or public.can_access_channel(id, auth.uid()))
 );
+create policy "admin creates channels" on public.channels for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
+create policy "leaders create channels" on public.channels for insert to authenticated with check (organization_id = public.current_org_id() and created_by = auth.uid() and public.has_role_capability('teams'));
 create policy "owners update channels" on public.channels for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 create policy "owners delete channels" on public.channels for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 drop policy if exists "same organization messages" on public.messages;
@@ -501,6 +560,57 @@ create policy "same organization team updates" on public.team_updates for select
 create policy "members create team updates" on public.team_updates for insert to authenticated with check (organization_id = public.current_org_id() and author_id = auth.uid());
 create policy "authors update team updates" on public.team_updates for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid()));
 create policy "authors delete team updates" on public.team_updates for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid()));
+create policy "requester or admin sees employee requests" on public.employee_creation_requests for select to authenticated using (organization_id = public.current_org_id() and (requested_by = auth.uid() or public.is_org_admin()));
+create policy "eligible users request employee slots" on public.employee_creation_requests for insert to authenticated with check (organization_id = public.current_org_id() and requested_by = auth.uid() and public.has_role_capability('employees'));
+
+create or replace function public.request_employee_creation_slots(requested_slots integer default 4)
+returns uuid language plpgsql security definer set search_path = public
+as $$
+declare
+  request_id uuid;
+  org_id uuid;
+  role_id uuid;
+  current_limit integer;
+begin
+  if not public.has_role_capability('employees') then raise exception 'Your role cannot create employee accounts'; end if;
+  if requested_slots is null or requested_slots < 1 or requested_slots > 100 then raise exception 'Request between 1 and 100 employee slots'; end if;
+  org_id := public.current_org_id();
+  select ur.role_id into role_id from public.user_roles ur where ur.user_id = auth.uid() and ur.is_primary = true limit 1;
+  select employee_creation_limit into current_limit from public.profiles where id = auth.uid();
+  insert into public.employee_creation_requests(organization_id, requested_by, requester_role_id, current_limit, requested_slots)
+  values (org_id, auth.uid(), role_id, coalesce(current_limit, 4), requested_slots)
+  on conflict (requested_by) where status = 'pending' do update set requested_slots = excluded.requested_slots, current_limit = excluded.current_limit
+  returning id into request_id;
+  return request_id;
+end;
+$$;
+revoke all on function public.request_employee_creation_slots(integer) from public;
+grant execute on function public.request_employee_creation_slots(integer) to authenticated;
+
+create or replace function public.review_employee_creation_request(request_uuid uuid, approve_request boolean, review_note text default '')
+returns jsonb language plpgsql security definer set search_path = public
+as $$
+declare
+  request_row public.employee_creation_requests%rowtype;
+  next_limit integer;
+begin
+  if not public.is_org_admin() then raise exception 'Only the Main Admin can review employee requests'; end if;
+  select * into request_row from public.employee_creation_requests where id = request_uuid and organization_id = public.current_org_id() for update;
+  if request_row.id is null then raise exception 'Employee creation request not found'; end if;
+  if request_row.status <> 'pending' then raise exception 'This request has already been reviewed'; end if;
+  if approve_request then
+    select greatest(employee_creation_limit, request_row.current_limit) + request_row.requested_slots into next_limit from public.profiles where id = request_row.requested_by;
+    update public.profiles set employee_creation_limit = least(coalesce(next_limit, request_row.current_limit + request_row.requested_slots), 10000) where id = request_row.requested_by;
+  end if;
+  update public.employee_creation_requests
+    set status = case when approve_request then 'approved' else 'rejected' end,
+        reviewed_by = auth.uid(), reviewed_at = now(), reviewer_note = coalesce(review_note, '')
+    where id = request_uuid;
+  return jsonb_build_object('ok', true, 'status', case when approve_request then 'approved' else 'rejected' end);
+end;
+$$;
+revoke all on function public.review_employee_creation_request(uuid, boolean, text) from public;
+grant execute on function public.review_employee_creation_request(uuid, boolean, text) to authenticated;
 create policy "same organization courses" on public.training_courses for select to authenticated using (organization_id = public.current_org_id());
 create policy "own training assignments" on public.training_assignments for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "own training progress" on public.training_progress for all to authenticated using (exists (select 1 from public.training_assignments a where a.id = assignment_id and (a.user_id = auth.uid() or public.is_org_admin())));
@@ -567,15 +677,15 @@ begin
   end if;
   insert into public.organizations (name, slug) values ('DialGrow', 'dialgrow')
     on conflict (slug) do update set name = excluded.name returning id into org_id;
-  insert into public.roles (organization_id, name, layer, description, dashboard_template, visibility_scope, status, responsibilities)
+  insert into public.roles (organization_id, name, layer, description, dashboard_template, visibility_scope, can_create_roles, can_create_teams, can_create_employees, status, responsibilities)
   values
-    (org_id, 'Main Admin', 'System', 'Organization-wide control center with full configuration, security and audit access.', 'admin', 'organization', 'active', array['Manage people, roles and teams', 'Configure permissions and policies', 'Review analytics and audit logs']),
-    (org_id, 'Team Lead', 'Management', 'Owns a team''s priorities, assignments, reviews and workload.', 'team', 'team', 'active', array['Create and assign team tasks', 'Review outputs and request changes', 'Track team training and workload']),
-    (org_id, 'Technical Lead', 'Management', 'Guides technical teams and intern groups with technical task metadata.', 'technical', 'technical', 'active', array['Manage technical work', 'Review projects and coding tasks', 'Support technical training']),
-    (org_id, 'Operations Lead', 'Management', 'Runs daily execution, attendance workflows and operational exceptions.', 'operations', 'operations', 'active', array['Monitor check-ins and exceptions', 'Assign operational work', 'Report on completion trends']),
-    (org_id, 'Full Stack Developer', 'Technical', 'Executes product work and contributes to technical delivery.', 'technical', 'team', 'active', array['Own technical tasks', 'Attach code and resources', 'Submit work for review']),
-    (org_id, 'Customer Success', 'Business', 'Connects customer context to tasks, handoffs and growth outcomes.', 'employee', 'team', 'active', array['Manage customer tasks', 'Share permitted documents', 'Coordinate account follow-ups'])
-  on conflict (organization_id, name) do update set description = excluded.description, responsibilities = excluded.responsibilities, status = 'active';
+    (org_id, 'Main Admin', 'System', 'Organization-wide control center with full configuration, security and audit access.', 'admin', 'organization', true, true, true, 'active', array['Manage people, roles and teams', 'Configure permissions and policies', 'Review analytics and audit logs']),
+    (org_id, 'Team Lead', 'Management', 'Owns a team''s priorities, assignments, reviews and workload.', 'team', 'team', true, true, true, 'active', array['Create and assign team tasks', 'Review outputs and request changes', 'Track team training and workload']),
+    (org_id, 'Technical Lead', 'Management', 'Guides technical teams and intern groups with technical task metadata.', 'technical', 'technical', true, true, true, 'active', array['Manage technical work', 'Review projects and coding tasks', 'Support technical training']),
+    (org_id, 'Operations Lead', 'Management', 'Runs daily execution, attendance workflows and operational exceptions.', 'operations', 'operations', true, true, true, 'active', array['Monitor check-ins and exceptions', 'Assign operational work', 'Report on completion trends']),
+    (org_id, 'Full Stack Developer', 'Technical', 'Executes product work and contributes to technical delivery.', 'technical', 'team', true, true, true, 'active', array['Own technical tasks', 'Attach code and resources', 'Submit work for review']),
+    (org_id, 'Customer Success', 'Business', 'Connects customer context to tasks, handoffs and growth outcomes.', 'employee', 'team', true, true, true, 'active', array['Manage customer tasks', 'Share permitted documents', 'Coordinate account follow-ups'])
+  on conflict (organization_id, name) do update set description = excluded.description, responsibilities = excluded.responsibilities, can_create_roles = excluded.can_create_roles, can_create_teams = excluded.can_create_teams, can_create_employees = excluded.can_create_employees, status = 'active';
   insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, timezone)
   values (auth.uid(), org_id, 'dg-0001', coalesce(auth.jwt() -> 'user_metadata' ->> 'full_name', 'Durga Prashad'), lower(auth.jwt() ->> 'email'), 'BA', 'Main Admin', 'Asia/Kolkata')
   on conflict (id) do update set organization_id = excluded.organization_id, dg_id = coalesce(public.profiles.dg_id, excluded.dg_id), job_title = 'Main Admin';
@@ -624,8 +734,8 @@ begin
   select id into selected_role_id from public.roles where organization_id = org_id and name = role_name and status = 'active';
   if selected_role_id is null then raise exception 'Selected role is not available'; end if;
   update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), raw_user_meta_data = jsonb_set(coalesce(raw_user_meta_data, '{}'::jsonb), '{full_name}', to_jsonb(employee_name)), updated_at = now() where id = target_user_id;
-  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status)
-  values (target_user_id, org_id, lower(trim(new_dg_id)), employee_name, lower(trim(login_email)), upper(left(regexp_replace(employee_name, '[^A-Za-z]', '', 'g'), 2)), role_name, 'active');
+  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status, created_by)
+  values (target_user_id, org_id, lower(trim(new_dg_id)), employee_name, lower(trim(login_email)), upper(left(regexp_replace(employee_name, '[^A-Za-z]', '', 'g'), 2)), role_name, 'active', auth.uid());
   insert into public.user_roles (user_id, role_id, is_primary) values (target_user_id, selected_role_id, true);
   insert into public.audit_logs (organization_id, actor_id, action, object_type, object_id, metadata) values (org_id, auth.uid(), 'employee_created', 'profile', target_user_id, jsonb_build_object('dgId', lower(trim(new_dg_id)), 'roleName', role_name));
   return target_user_id;
@@ -675,8 +785,8 @@ begin
 
   insert into auth.identities (user_id, provider_id, identity_data, provider, created_at, updated_at)
   values (new_user_id, new_user_id::text, jsonb_build_object('sub', new_user_id::text, 'email', normalized_email, 'full_name', normalized_name, 'email_verified', true, 'phone_verified', false), 'email', now(), now());
-  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status)
-  values (new_user_id, org_id, normalized_dg_id, normalized_name, normalized_email, upper(left(regexp_replace(normalized_name, '[^A-Za-z]', '', 'g'), 2)), target_role_name, 'active');
+  insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status, created_by)
+  values (new_user_id, org_id, normalized_dg_id, normalized_name, normalized_email, upper(left(regexp_replace(normalized_name, '[^A-Za-z]', '', 'g'), 2)), target_role_name, 'active', auth.uid());
   insert into public.user_roles (user_id, role_id, is_primary) values (new_user_id, selected_role_id, true);
   insert into public.audit_logs (organization_id, actor_id, action, object_type, object_id, metadata)
   values (org_id, auth.uid(), 'employee_created', 'profile', new_user_id, jsonb_build_object('dgId', normalized_dg_id, 'roleName', target_role_name, 'email', normalized_email));
