@@ -304,10 +304,10 @@ function LiveWorkspace({ session, onSignOut }) {
   const createEmployee = async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const dgId = makeEmployeeDgId();
+    const fallbackDgId = makeEmployeeDgId();
     const suppliedEmail = form.get('email')?.toString().trim().toLowerCase();
     const employeePayload = {
-      dgId,
+      dgId: null,
       email: suppliedEmail || null,
       password: form.get('password'),
       fullName: form.get('fullName'),
@@ -317,9 +317,9 @@ function LiveWorkspace({ session, onSignOut }) {
     let { data, error: provisionError } = await supabase.functions.invoke('create-employee', { body: employeePayload });
     if (provisionError && roleName === 'Main Admin') {
       const { data: rpcData, error: rpcError } = await supabase.rpc('create_employee_account', {
-        new_dg_id: dgId,
+        new_dg_id: fallbackDgId,
         employee_name: employeePayload.fullName,
-        login_email: suppliedEmail || `${dgId}@dialgrow.com`,
+        login_email: suppliedEmail || `${fallbackDgId}@dialgrow.com`,
         employee_password: employeePayload.password,
         role_name: employeePayload.roleName,
       });
@@ -344,7 +344,7 @@ function LiveWorkspace({ session, onSignOut }) {
     }
     event.currentTarget.reset();
     setShowEmployeeForm(false);
-    notify(`${dgId} created. Share the ID and assigned password securely.`);
+    notify(`${data?.dgId || fallbackDgId} created. Share the ID and assigned password securely.`);
     refresh();
   };
   const deleteEmployee = async (event) => {
