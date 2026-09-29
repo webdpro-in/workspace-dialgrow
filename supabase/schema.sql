@@ -371,6 +371,12 @@ create policy "team members visible in scope" on public.team_members for select 
       and (t.lead_id = auth.uid() or public.is_org_admin())
   )
 );
+create policy "admins assign team members" on public.team_members for insert to authenticated with check (
+  public.is_org_admin() and exists (
+    select 1 from public.teams t
+    where t.id = team_id and t.organization_id = public.current_org_id()
+  )
+);
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
 create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
 create policy "own attendance update" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));

@@ -297,9 +297,33 @@ function LiveWorkspace({ session, onSignOut }) {
     const form = new FormData(event.currentTarget);
     const dgId = form.get('dgId')?.toString().trim().toLowerCase();
     const suppliedEmail = form.get('email')?.toString().trim().toLowerCase();
-    const { data, error: provisionError } = await supabase.functions.invoke('create-employee', {
-      body: { dgId, email: suppliedEmail || null, password: form.get('password'), fullName: form.get('fullName'), roleName: form.get('roleName'), teamId: form.get('teamId') || null },
-    });
+    const employeePayload = {
+      dgId,
+      email: suppliedEmail || null,
+      password: form.get('password'),
+      fullName: form.get('fullName'),
+      roleName: form.get('roleName'),
+      teamId: form.get('teamId') || null,
+    };
+    let { data, error: provisionError } = await supabase.functions.invoke('create-employee', { body: employeePayload });
+    if (provisionError && roleName === 'Main Admin') {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('create_employee_account', {
+        new_dg_id: dgId,
+        employee_name: employeePayload.fullName,
+        login_email: suppliedEmail || `${dgId}@dialgrow.com`,
+        employee_password: employeePayload.password,
+        role_name: employeePayload.roleName,
+      });
+      if (!rpcError) {
+        data = rpcData;
+        provisionError = null;
+        const createdUserId = rpcData?.userId || rpcData?.user_id;
+        if (employeePayload.teamId && createdUserId) {
+          const { error: teamError } = await supabase.from('team_members').insert({ team_id: employeePayload.teamId, user_id: createdUserId });
+          if (teamError) { notify(`Employee created, but team assignment failed: ${teamError.message}`, 'error'); refresh(); return; }
+        }
+      }
+    }
     if (provisionError || data?.error) { notify(data?.error || provisionError?.message || 'Unable to create employee account', 'error'); return; }
     event.currentTarget.reset();
     setShowEmployeeForm(false);
