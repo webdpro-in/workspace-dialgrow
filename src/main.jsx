@@ -310,7 +310,8 @@ function LiveWorkspace({ session, onSignOut }) {
   const deleteChannel = async (channelId) => { if (!window.confirm('Delete this team group and its messages?')) return; const { error: channelError } = await supabase.from('channels').delete().eq('id', channelId); if (channelError) notify(channelError.message, 'error'); else { notify('Team group deleted'); refresh(); } };
   const createTrainingResource = async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const channelId = form.get('channelId')?.toString();
     const resourceType = form.get('resourceType')?.toString() || 'document';
     const file = form.get('file');
@@ -327,7 +328,7 @@ function LiveWorkspace({ session, onSignOut }) {
     }
     const { error: resourceError } = await supabase.from('training_resources').insert({ organization_id: workspace.profile.organization_id, channel_id: channelId, created_by: session.user.id, title: form.get('title'), description: form.get('description') || '', resource_type: resourceType, url: resourceType === 'document' ? null : form.get('url')?.toString().trim(), storage_path: storagePath, file_name: resourceType === 'document' ? file.name : null });
     if (resourceError) { if (storagePath) await supabase.storage.from('team-files').remove([storagePath]); notify(resourceError.message, 'error'); return; }
-    event.currentTarget.reset();
+    formElement.reset();
     notify('Training resource shared with the selected group');
     refresh();
   };
@@ -344,7 +345,8 @@ function LiveWorkspace({ session, onSignOut }) {
   const assignRole = async (event, userId) => { event.preventDefault(); const form = new FormData(event.currentTarget); const roleId = form.get('roleId'); const { error: clearError } = await supabase.from('user_roles').update({ is_primary: false }).eq('user_id', userId); if (clearError) { notify(clearError.message, 'error'); return; } const { error: assignError } = await supabase.from('user_roles').upsert({ user_id: userId, role_id: roleId, is_primary: true }, { onConflict: 'user_id,role_id' }); if (assignError) notify(assignError.message, 'error'); else { notify('Role assigned and dashboard access updated'); refresh(); } };
   const createEmployee = async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const fallbackDgId = makeEmployeeDgId();
     const suppliedEmail = form.get('email')?.toString().trim().toLowerCase();
     const employeePayload = {
@@ -391,7 +393,7 @@ function LiveWorkspace({ session, onSignOut }) {
       if (channelError) { notify(`Employee created, but group assignment failed: ${channelError.message}`, 'error'); refresh(); return; }
     }
     const createdResult = { dgId: data?.dgId || fallbackDgId, email: data?.email || suppliedEmail || `${data?.dgId || fallbackDgId}@dialgrow.com`, password: employeePayload.password, fullName: employeePayload.fullName, roleName: employeePayload.roleName, groupName: workspace.channels.find((channel) => channel.id === employeePayload.channelId)?.display_name || null };
-    event.currentTarget.reset();
+    formElement.reset();
     setShowEmployeeForm(false);
     setEmployeeCreated(createdResult);
     notify(`${createdResult.dgId} created. Share the ID and assigned password securely.`);
