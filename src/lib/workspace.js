@@ -23,7 +23,7 @@ export async function loadWorkspace(user) {
   const memberships = membershipsResult.data || [];
   const role = memberships.find((item) => item.is_primary)?.roles || memberships[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
 
-  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, postsResult] = await Promise.all([
+  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, postsResult, documentsResult, updatesResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('teams').select('*').order('name'),
     supabase.from('channels').select('*').order('created_at'),
@@ -34,9 +34,11 @@ export async function loadWorkspace(user) {
     supabase.from('user_roles').select('user_id, is_primary, roles(id, name)').eq('is_primary', true),
     supabase.from('team_members').select('team_id, user_id'),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
+    supabase.from('documents').select('*').order('created_at', { ascending: false }).limit(100),
+    supabase.from('team_updates').select('*').order('created_at', { ascending: false }).limit(100),
   ]);
 
-  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, postsResult].find((result) => result.error);
+  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, postsResult, documentsResult, updatesResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
   const members = (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null }));
@@ -52,6 +54,8 @@ export async function loadWorkspace(user) {
     members,
     teamMembers: teamMembersResult.data || [],
     posts: postsResult.data || [],
+    documents: documentsResult.data || [],
+    updates: updatesResult.data || [],
   };
 }
 
@@ -75,7 +79,7 @@ export async function updateAttendance({ userId, organizationId, status, session
 
 export async function createTask({ organizationId, creatorId, title, description, priority, assigneeId, dueDate, noteColor, repeatRule, teamId }) {
   if (!supabase) throw new Error('Supabase is not configured.');
-  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, team_id: teamId || null, reference: `DG-${Date.now().toString().slice(-6)}`, title, description, priority, due_date: dueDate || null, repeat_rule: repeatRule || 'once', note_color: noteColor || 'sun', status: 'assigned', task_type: 'operations', progress: 0 }).select().single();
+  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, team_id: teamId || null, reference: `DG-${Date.now().toString().slice(-6)}`, title, description: description || '', priority: priority || 'medium', due_date: dueDate || null, repeat_rule: repeatRule || 'once', note_color: noteColor || 'sun', status: 'assigned', task_type: 'operations', progress: 0 }).select().single();
 }
 
 export async function sendMessage({ channelId, authorId, body }) {

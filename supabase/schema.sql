@@ -202,6 +202,20 @@ create table if not exists public.documents (
 );
 
 alter table public.documents add column if not exists expires_at timestamptz;
+alter table public.documents add column if not exists channel_id uuid references public.channels(id) on delete cascade;
+
+create table if not exists public.team_updates (
+  id uuid primary key default uuid_generate_v4(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  author_id uuid not null references auth.users(id) on delete cascade,
+  cadence text not null default 'daily' check (cadence in ('daily', 'weekly')),
+  work_date date not null default current_date,
+  title text not null,
+  body text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, author_id, cadence, work_date)
+);
 
 create table if not exists public.training_courses (
   id uuid primary key default uuid_generate_v4(),
@@ -314,6 +328,7 @@ alter table public.positions enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.user_roles enable row level security;
 alter table public.announcements enable row level security;
+alter table public.team_updates enable row level security;
 alter table public.social_posts enable row level security;
 alter table public.social_post_recipients enable row level security;
 
@@ -350,6 +365,22 @@ as $$
   )
 $$;
 
+create or replace function public.protect_workday_hours()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_org_admin()
+    and (new.work_start_time is distinct from old.work_start_time or new.work_end_time is distinct from old.work_end_time) then
+    raise exception 'Workday hours are controlled by the Main Admin';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_workday_hours on public.profiles;
+create trigger protect_workday_hours before update on public.profiles
+for each row execute function public.protect_workday_hours();
+
 drop policy if exists "profiles are visible to authenticated users" on public.profiles;
 drop policy if exists "authenticated users can read workspace roles" on public.roles;
 drop policy if exists "authenticated users can read teams" on public.teams;
@@ -367,8 +398,18 @@ drop policy if exists "users can update own progress" on public.training_progres
 drop policy if exists "authenticated users can read positions" on public.positions;
 
 create policy "same organization profiles" on public.profiles for select to authenticated using (organization_id = public.current_org_id());
+create policy "admins update workspace profiles" on public.profiles for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "same organization roles" on public.roles for select to authenticated using (organization_id = public.current_org_id());
 create policy "admin creates roles" on public.roles for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
+create policy "team leads create roles" on public.roles for insert to authenticated with check (
+  organization_id = public.current_org_id()
+  and exists (
+    select 1 from public.user_roles ur
+    join public.roles creator_role on creator_role.id = ur.role_id
+    where ur.user_id = auth.uid() and ur.is_primary = true
+      and creator_role.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
+  )
+);
 create policy "admin updates roles" on public.roles for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "own or admin role memberships" on public.user_roles for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "admin assigns roles" on public.user_roles for insert to authenticated with check (public.is_org_admin());
@@ -407,7 +448,7 @@ create policy "leaders create channels" on public.channels for insert to authent
     join public.roles r on r.id = ur.role_id
     where ur.user_id = auth.uid()
       and ur.is_primary = true
-      and r.name in ('Main Admin', 'Team Lead', 'Technical Lead', 'Operations Lead')
+      and r.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
   )
 );
 create policy "owners update channels" on public.channels for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
@@ -415,6 +456,12 @@ create policy "owners delete channels" on public.channels for delete to authenti
 create policy "same organization messages" on public.messages for select to authenticated using (exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
 create policy "scoped message creation" on public.messages for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
 create policy "same organization documents" on public.documents for select to authenticated using (organization_id = public.current_org_id());
+create policy "same organization document uploads" on public.documents for insert to authenticated with check (organization_id = public.current_org_id() and owner_id = auth.uid());
+create policy "owners delete documents" on public.documents for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or owner_id = auth.uid()));
+create policy "same organization team updates" on public.team_updates for select to authenticated using (organization_id = public.current_org_id());
+create policy "members create team updates" on public.team_updates for insert to authenticated with check (organization_id = public.current_org_id() and author_id = auth.uid());
+create policy "authors update team updates" on public.team_updates for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid()));
+create policy "authors delete team updates" on public.team_updates for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or author_id = auth.uid()));
 create policy "same organization courses" on public.training_courses for select to authenticated using (organization_id = public.current_org_id());
 create policy "own training assignments" on public.training_assignments for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "own training progress" on public.training_progress for all to authenticated using (exists (select 1 from public.training_assignments a where a.id = assignment_id and (a.user_id = auth.uid() or public.is_org_admin())));
@@ -447,10 +494,17 @@ insert into storage.buckets (id, name, public)
 values ('social-posts', 'social-posts', true)
 on conflict (id) do update set public = true;
 
+insert into storage.buckets (id, name, public)
+values ('team-files', 'team-files', false)
+on conflict (id) do update set public = false;
+
 create policy "public can view social posters" on storage.objects for select using (bucket_id = 'social-posts');
 create policy "admins upload social posters" on storage.objects for insert to authenticated with check (bucket_id = 'social-posts' and public.is_org_admin());
 create policy "admins update social posters" on storage.objects for update to authenticated using (bucket_id = 'social-posts' and public.is_org_admin()) with check (bucket_id = 'social-posts' and public.is_org_admin());
 create policy "admins delete social posters" on storage.objects for delete to authenticated using (bucket_id = 'social-posts' and public.is_org_admin());
+create policy "members upload team files" on storage.objects for insert to authenticated with check (bucket_id = 'team-files' and name like (public.current_org_id()::text || '/%'));
+create policy "members read team files" on storage.objects for select to authenticated using (bucket_id = 'team-files' and name like (public.current_org_id()::text || '/%'));
+create policy "owners delete team files" on storage.objects for delete to authenticated using (bucket_id = 'team-files' and (public.is_org_admin() or name like (public.current_org_id()::text || '/' || auth.uid()::text || '/%')));
 
 -- One-time bootstrap for the owner account. It never accepts a role or organization from the browser.
 create or replace function public.bootstrap_dialgrow_workspace()
