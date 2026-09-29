@@ -133,6 +133,10 @@ create table if not exists public.tasks (
   updated_at timestamptz not null default now()
 );
 
+alter table public.tasks add column if not exists note_color text not null default 'sun';
+alter table public.tasks add column if not exists note_rotation numeric(4,2) not null default 0;
+alter table public.tasks add column if not exists repeat_rule text not null default 'once';
+
 create table if not exists public.task_comments (
   id uuid primary key default uuid_generate_v4(),
   task_id uuid not null references public.tasks(id) on delete cascade,
@@ -171,6 +175,9 @@ create table if not exists public.channels (
   created_at timestamptz not null default now()
 );
 
+alter table public.channels add column if not exists created_by uuid references auth.users(id) on delete set null;
+create unique index if not exists channels_org_name_key on public.channels (organization_id, lower(name));
+
 create table if not exists public.messages (
   id uuid primary key default uuid_generate_v4(),
   channel_id uuid not null references public.channels(id) on delete cascade,
@@ -193,6 +200,8 @@ create table if not exists public.documents (
   visibility_scope jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.documents add column if not exists expires_at timestamptz;
 
 create table if not exists public.training_courses (
   id uuid primary key default uuid_generate_v4(),
@@ -275,6 +284,7 @@ create table if not exists public.social_posts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+create unique index if not exists social_posts_org_title_caption_key on public.social_posts (organization_id, lower(title), md5(caption));
 
 create table if not exists public.social_post_recipients (
   post_id uuid not null references public.social_posts(id) on delete cascade,
@@ -383,10 +393,25 @@ create policy "own attendance update" on public.attendance for update to authent
 create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid())));
 create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and creator_id = auth.uid());
 create policy "scoped task updates" on public.tasks for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid()));
+create policy "scoped task deletes" on public.tasks for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
 create policy "same organization task comments" on public.task_comments for select to authenticated using (exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
 create policy "scoped task comments" on public.task_comments for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
 create policy "same organization channels" on public.channels for select to authenticated using (organization_id = public.current_org_id());
 create policy "admin creates channels" on public.channels for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
+create policy "leaders create channels" on public.channels for insert to authenticated with check (
+  organization_id = public.current_org_id()
+  and created_by = auth.uid()
+  and exists (
+    select 1
+    from public.user_roles ur
+    join public.roles r on r.id = ur.role_id
+    where ur.user_id = auth.uid()
+      and ur.is_primary = true
+      and r.name in ('Main Admin', 'Team Lead', 'Technical Lead', 'Operations Lead')
+  )
+);
+create policy "owners update channels" on public.channels for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
+create policy "owners delete channels" on public.channels for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 create policy "same organization messages" on public.messages for select to authenticated using (exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
 create policy "scoped message creation" on public.messages for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
 create policy "same organization documents" on public.documents for select to authenticated using (organization_id = public.current_org_id());
@@ -413,6 +438,7 @@ create policy "visible social posts" on public.social_posts for select to authen
 );
 create policy "admin creates social posts" on public.social_posts for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin() and created_by = auth.uid());
 create policy "admin updates social posts" on public.social_posts for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id());
+create policy "admin deletes social posts" on public.social_posts for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 create policy "visible post recipients" on public.social_post_recipients for select to authenticated using (user_id = auth.uid() or public.is_org_admin());
 create policy "admin assigns post recipients" on public.social_post_recipients for insert to authenticated with check (public.is_org_admin());
 create policy "users update own post status" on public.social_post_recipients for update to authenticated using (user_id = auth.uid() or public.is_org_admin()) with check (user_id = auth.uid() or public.is_org_admin());

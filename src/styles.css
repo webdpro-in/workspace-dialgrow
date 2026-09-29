@@ -139,3 +139,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .danger-action:hover { color: #a63e37 !important; border-color: #e49b93 !important; background: #fff0ee !important; }
 .delete-warning { display: flex; align-items: center; gap: 8px; margin: 0 0 17px; padding: 11px; color: #a34b44; border: 1px solid #f1cbc6; border-radius: 7px; background: #fff5f3; font-size: 10px; }
 .delete-warning svg { flex-shrink: 0; }
+
+/* Sticky task board and live workspace controls */
+.sticky-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; padding: 22px; border: 1px solid #c8d9cc; border-radius: 18px; background: #dce9de; }
+.sticky-dashboard-panel { margin-top: 16px; }
+.sticky-dashboard-board { border-radius: 0 0 16px 16px; border: 0; }
+.sticky-task { position: relative; display: flex; flex-direction: column; min-height: 190px; padding: 25px 18px 16px; border: 0; border-radius: 2px; color: #1d2730; text-align: left; cursor: pointer; box-shadow: 0 12px 20px rgba(33, 49, 42, .16); transform: rotate(var(--note-rotation, 0deg)); transition: transform .16s ease, box-shadow .16s ease; font-family: "Comic Sans MS", "Bradley Hand", cursive; }
+.sticky-task:hover { z-index: 2; transform: rotate(0deg) translateY(-4px); box-shadow: 0 18px 26px rgba(33, 49, 42, .2); }
+.sticky-task strong { margin: 9px 0 8px; font-size: 18px; line-height: 1.15; }
+.sticky-task p { margin: 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.sticky-task-meta, .sticky-task-foot { margin-top: auto; padding-top: 14px; font-family: inherit; font-size: 11px; }
+.sticky-task-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; opacity: .7; }
+.sticky-task-status { align-self: flex-start; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .62; }
+.sticky-pin { position: absolute; top: 8px; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: #ef7063; box-shadow: 0 1px 3px rgba(0,0,0,.2); transform: translateX(-50%); }
+.sticky-sun { background: #ffe579; }.sticky-rose { background: #ffc0ce; }.sticky-sky { background: #a9ddf5; }.sticky-mint { background: #c8eca5; }.sticky-lavender { background: #d5c3ef; }
+.task-filter-tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.task-filter-tabs button { padding: 7px 10px; border: 1px solid #d7e2db; border-radius: 999px; background: #fff; color: #6c7c73; font-size: 10px; text-transform: capitalize; cursor: pointer; }
+.task-filter-tabs button.selected { border-color: #1d765c; background: #e8f4ed; color: #176348; font-weight: 700; }
+.chat-attach-button { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid #d4e1da; border-radius: 50%; background: #fff; color: #5b7f6c; cursor: pointer; }
+.live-created-list > span { display: inline-flex; align-items: center; gap: 6px; }
+.icon-danger { display: inline-grid; place-items: center; padding: 3px; border: 0; background: transparent; color: #bd5149; cursor: pointer; }
+.post-card-foot { align-items: center; gap: 10px; }
+.post-card-foot > button { white-space: nowrap; }
+@media (max-width: 720px) { .sticky-board { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; }.sticky-task { min-height: 165px; padding: 23px 13px 12px; }.sticky-task strong { font-size: 15px; }.sticky-task p { font-size: 11px; }.task-filter-tabs { justify-content: flex-start; } }

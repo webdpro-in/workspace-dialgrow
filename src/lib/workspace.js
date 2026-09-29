@@ -39,15 +39,17 @@ export async function loadWorkspace(user) {
   const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, postsResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
+  const members = (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null }));
+  const memberById = new Map(members.map((member) => [member.id, member]));
   return {
     profile: { ...(profile || {}), full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Workspace member', email: user.email, role },
-    tasks: tasksResult.data || [],
+    tasks: (tasksResult.data || []).map((task) => ({ ...task, creator: memberById.get(task.creator_id) || null, assignee: memberById.get(task.assignee_id) || null })),
     teams: teamsResult.data || [],
-    channels: channelsResult.data || [],
+    channels: (channelsResult.data || []).map((channel) => ({ ...channel, display_name: channel.name?.toLowerCase() === 'general' ? 'Campfire' : channel.name })),
     attendance: attendanceResult.data || null,
     logins: auditResult.data || [],
     roles: rolesResult.data || [],
-    members: (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null })),
+    members,
     teamMembers: teamMembersResult.data || [],
     posts: postsResult.data || [],
   };
@@ -71,9 +73,9 @@ export async function updateAttendance({ userId, organizationId, status, session
   return supabase.from('attendance').insert({ organization_id: organizationId, user_id: userId, status, check_in_at: status === 'working' ? new Date().toISOString() : null, check_out_at: status === 'checked_out' ? new Date().toISOString() : null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, session_id: sessionId }).select().single();
 }
 
-export async function createTask({ organizationId, creatorId, title, description, priority, assigneeId }) {
+export async function createTask({ organizationId, creatorId, title, description, priority, assigneeId, dueDate, noteColor, repeatRule, teamId }) {
   if (!supabase) throw new Error('Supabase is not configured.');
-  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, reference: `DG-${Date.now().toString().slice(-6)}`, title, description, priority, status: 'assigned', task_type: 'operations', progress: 0 }).select().single();
+  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, team_id: teamId || null, reference: `DG-${Date.now().toString().slice(-6)}`, title, description, priority, due_date: dueDate || null, repeat_rule: repeatRule || 'once', note_color: noteColor || 'sun', status: 'assigned', task_type: 'operations', progress: 0 }).select().single();
 }
 
 export async function sendMessage({ channelId, authorId, body }) {
