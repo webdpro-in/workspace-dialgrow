@@ -341,9 +341,17 @@ function LiveWorkspace({ session, onSignOut }) {
   const deleteEmployee = async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const { data, error: deleteError } = await supabase.functions.invoke('delete-employee', {
+    let { data, error: deleteError } = await supabase.functions.invoke('delete-employee', {
       body: { targetUserId: employeeToDelete.id, confirmation: form.get('confirmation') },
     });
+    if (deleteError) {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('delete_employee_account', {
+        target_user_id: employeeToDelete.id,
+        confirmation: form.get('confirmation'),
+      });
+      if (!rpcError) { data = rpcData; deleteError = null; }
+      else deleteError = rpcError;
+    }
     if (deleteError || data?.error) { notify(data?.error || deleteError?.message || 'Unable to delete employee account', 'error'); return; }
     setEmployeeToDelete(null);
     notify(`${employeeToDelete.full_name} and their login credentials were deleted`);

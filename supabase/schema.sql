@@ -558,10 +558,10 @@ exception when others then
 end;
 $$;
 revoke all on function private.create_employee_account(text, text, text, text, text) from public;
-grant execute on function private.create_employee_account(text, text, text, text, text) to authenticated;
+revoke all on function private.create_employee_account(text, text, text, text, text) from authenticated, anon;
 
 create or replace function public.create_employee_account(new_dg_id text, employee_name text, login_email text, employee_password text, role_name text)
-returns jsonb language plpgsql security invoker set search_path = public
+returns jsonb language plpgsql security definer set search_path = public
 as $$
 begin
   if not public.is_org_admin() then raise exception 'Only the Main Admin can create employee accounts'; end if;
@@ -570,6 +570,43 @@ end;
 $$;
 revoke all on function public.create_employee_account(text, text, text, text, text) from public;
 grant execute on function public.create_employee_account(text, text, text, text, text) to authenticated;
+
+create or replace function public.delete_employee_account(target_user_id uuid, confirmation text)
+returns jsonb language plpgsql security definer set search_path = public, auth
+as $$
+declare
+  org_id uuid;
+  target_name text;
+  target_dg_id text;
+  is_admin boolean;
+begin
+  if confirmation <> 'DELETE' then raise exception 'Type DELETE to confirm account deletion'; end if;
+  if auth.uid() is null then raise exception 'Not authenticated'; end if;
+  if target_user_id = auth.uid() then raise exception 'You cannot delete your own account'; end if;
+  org_id := public.current_org_id();
+  is_admin := public.is_org_admin();
+  if not is_admin and not exists (
+    select 1 from public.user_roles ur join public.roles r on r.id = ur.role_id
+    where ur.user_id = auth.uid() and r.name in ('Team Lead', 'Technical Lead', 'Operations Lead')
+  ) then raise exception 'Only a Main Admin or team lead can delete employee accounts'; end if;
+  select full_name, dg_id into target_name, target_dg_id
+  from public.profiles where id = target_user_id and organization_id = org_id;
+  if target_name is null then raise exception 'Employee is not in your workspace'; end if;
+  if exists (select 1 from public.user_roles ur join public.roles r on r.id = ur.role_id where ur.user_id = target_user_id and r.name = 'Main Admin') then
+    raise exception 'Main Admin accounts cannot be deleted from this screen';
+  end if;
+  if not is_admin and not exists (
+    select 1 from public.team_members tm join public.teams t on t.id = tm.team_id
+    where tm.user_id = target_user_id and t.organization_id = org_id and t.lead_id = auth.uid()
+  ) then raise exception 'You can only delete employees from a team you lead'; end if;
+  insert into public.audit_logs (organization_id, actor_id, action, object_type, object_id, metadata)
+  values (org_id, auth.uid(), 'employee_deleted', 'profile', target_user_id, jsonb_build_object('dgId', target_dg_id, 'fullName', target_name));
+  delete from auth.users where id = target_user_id;
+  return jsonb_build_object('ok', true, 'message', target_name || ' was deleted');
+end;
+$$;
+revoke all on function public.delete_employee_account(uuid, text) from public;
+grant execute on function public.delete_employee_account(uuid, text) to authenticated;
 
 -- Realtime publication for collaboration surfaces.
 alter publication supabase_realtime add table public.tasks;
