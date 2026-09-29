@@ -29,7 +29,7 @@ export async function loadWorkspace(user) {
     ? supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(500)
     : Promise.resolve({ data: [], error: null });
 
-  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult, messagesResult] = await Promise.all([
+  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, trainingResourcesResult, updatesResult, creationRequestsResult, messagesResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('teams').select('*').order('name'),
     supabase.from('channels').select('*').order('created_at'),
@@ -42,12 +42,13 @@ export async function loadWorkspace(user) {
     supabase.from('channel_members').select('channel_id, user_id'),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
     supabase.from('documents').select('*').order('created_at', { ascending: false }).limit(100),
+    supabase.from('training_resources').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('team_updates').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('employee_creation_requests').select('*').order('created_at', { ascending: false }).limit(50),
     messagesQuery,
   ]);
 
-  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult, messagesResult].find((result) => result.error);
+  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, trainingResourcesResult, updatesResult, creationRequestsResult, messagesResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
   const members = (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null }));
@@ -68,6 +69,11 @@ export async function loadWorkspace(user) {
     channelMembers: channelMembersResult.data || [],
     posts: postsResult.data || [],
     documents: documentsResult.data || [],
+    trainingResources: (trainingResourcesResult.data || []).map((resource) => ({
+      ...resource,
+      group: (channelsResult.data || []).find((channel) => channel.id === resource.channel_id) || null,
+      author: memberById.get(resource.created_by) || null,
+    })),
     updates: updatesResult.data || [],
     creationRequests: creationRequestsResult.data || [],
     messages: messagesResult.data || [],

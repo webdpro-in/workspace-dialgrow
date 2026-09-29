@@ -123,6 +123,54 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (max-width: 900px) { .live-role-manager { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .role-assignment-row { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.role-builder-submit { width: 100%; margin-top: 0; } }
 
+/* Group settings, private learning resources and creation confirmation. */
+.live-chat-head-actions { display: flex; align-items: center; gap: 10px; }
+.group-settings-modal { max-width: 560px; }
+.group-settings-modal form { display: flex; flex-direction: column; gap: 12px; }
+.group-settings-members, .group-settings-add { padding: 12px; border: 1px solid #e2ebe3; border-radius: 8px; background: #fbfefb; }
+.group-settings-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: #385342; font-size: 10px; }
+.group-settings-title span { color: #8a9b90; font-size: 9px; }
+.group-member-row { display: flex; align-items: center; gap: 8px; min-height: 42px; border-top: 1px solid #edf2ed; }
+.group-member-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.group-member-row strong { color: #405448; font-size: 10px; }
+.group-member-row small { color: #8b9b91; font-size: 8px; }
+.group-settings-add { display: flex; flex-direction: column; gap: 8px; }
+.group-settings-add strong { color: #53665a; font-size: 10px; }
+.group-settings-add select { min-height: 76px; padding: 7px; border: 1px solid #dce8de; border-radius: 6px; color: #35483c; font-size: 9px; }
+.training-live-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 24px; background: linear-gradient(135deg, #effbf3, #f7f3ff); }
+.training-live-hero h2 { margin: 7px 0; color: #284738; font-family: 'Space Grotesk'; font-size: 24px; }
+.training-live-hero p { max-width: 620px; margin: 0; color: #6f8075; font-size: 11px; line-height: 1.6; }
+.training-resource-form { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.training-resource-form .live-panel-head { padding: 0; }
+.training-resource-form label { display: flex; flex-direction: column; gap: 6px; color: #65766b; font-size: 10px; font-weight: 700; }
+.training-resource-form input, .training-resource-form textarea, .training-resource-form select { width: 100%; padding: 9px; border: 1px solid #dce8de; border-radius: 7px; outline: 0; background: #fbfefb; color: #2e4034; font: inherit; font-weight: 400; }
+.training-resource-form textarea { resize: vertical; }
+.training-resource-form .live-action { align-self: flex-start; }
+.training-resource-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 13px; }
+.training-resource-card { overflow: hidden; }
+.training-resource-card iframe { width: 100%; height: 170px; border: 0; background: #10291d; }
+.training-resource-card-body { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; padding: 17px; }
+.training-resource-meta { display: flex; align-items: center; gap: 8px; }
+.training-resource-meta > span:last-child { color: #849389; font-size: 9px; }
+.training-resource-card h3 { margin: 0; color: #334b3b; font-size: 14px; }
+.training-resource-card p { margin: 0; color: #6e8074; font-size: 10px; line-height: 1.6; white-space: pre-wrap; }
+.training-resource-card small { color: #9aa79d; font-size: 8px; }
+.training-resource-card .quiet-action { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; }
+.live-training-page { display: flex; flex-direction: column; gap: 16px; }
+.employee-created-modal { max-width: 480px; }
+.created-success-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 10px; border-radius: 50%; color: #158743; background: #dff7e5; }
+.employee-created-modal h2 { margin-bottom: 7px; }
+.employee-created-modal > p { margin-bottom: 16px; color: #718077; font-size: 10px; line-height: 1.55; }
+.credential-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 11px 12px; border: 1px solid #dceadf; border-radius: 8px; background: #f7fcf8; }
+.credential-card > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.credential-card span { color: #84978a; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.credential-card strong { overflow: hidden; color: #236642; font-family: 'Space Grotesk'; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.created-account-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.created-account-meta span { padding: 5px 8px; border-radius: 999px; color: #397452; background: #e8f7ec; font-size: 9px; }
+.spin { animation: live-spin 1s linear infinite; }
+@keyframes live-spin { to { transform: rotate(360deg); } }
+@media (max-width: 720px) { .training-live-hero { align-items: flex-start; flex-direction: column; }.live-chat-head-actions { align-items: flex-end; flex-direction: column; gap: 5px; }.group-settings-modal { max-height: 90vh; overflow-y: auto; } }
+
 /* Landing page readability and floating navigation. */
 .landing-page .landing-nav { position: fixed; z-index: 20; top: 16px; left: 50%; width: min(calc(100% - 48px), 1180px); height: 70px; padding: 0 24px; border: 1px solid rgba(182, 236, 198, .16); border-radius: 18px; background: rgba(14, 32, 25, .82); box-shadow: 0 16px 42px rgba(0, 0, 0, .22); backdrop-filter: blur(18px); transform: translateX(-50%); }
 .landing-page .landing-main { padding-top: 94px; }
