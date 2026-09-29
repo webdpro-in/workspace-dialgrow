@@ -40,8 +40,15 @@ Deno.serve(async (request) => {
     if (!isMainAdmin && !leadRole) throw new Error('Only a Main Admin or team lead can create employee accounts');
 
     const { email: rawEmail, dgId: rawDgId, password, fullName, roleName, teamId } = await request.json();
-    const dgId = rawDgId?.trim().toLowerCase();
-    if (!dgId || !/^dg-\d{4,}$/.test(dgId)) throw new Error('DG ID must use the format dg-####');
+    let dgId = rawDgId?.trim().toLowerCase();
+    if (!dgId) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const candidate = `dg-${String(Math.floor(Math.random() * 10000) + 1).padStart(4, '0')}`;
+        const { data: candidateProfile } = await adminClient.from('profiles').select('id').eq('dg_id', candidate).maybeSingle();
+        if (!candidateProfile) { dgId = candidate; break; }
+      }
+    }
+    if (!dgId || !/^dg-\d{4}$/.test(dgId) || Number(dgId.slice(3)) < 1 || Number(dgId.slice(3)) > 10000) throw new Error('DG ID must be between dg-0001 and dg-10000');
     const email = rawEmail?.trim().toLowerCase() || `${dgId}@dialgrow.com`;
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid notification email or leave it blank');
     if (!password || password.length < 10) throw new Error('Temporary password must be at least 10 characters');

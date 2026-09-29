@@ -7,7 +7,7 @@ Deno.serve(async (request) => {
   try {
     const { dgId: rawDgId } = await request.json();
     const dgId = rawDgId?.trim().toLowerCase();
-    if (!dgId || !/^dg-\d{4,}$/.test(dgId)) throw new Error('Enter a valid DG ID');
+    if (!dgId || !/^dg-\d{4}$/.test(dgId) || Number(dgId.slice(3)) < 1 || Number(dgId.slice(3)) > 10000) throw new Error('Enter a valid DG ID between dg-0001 and dg-10000');
     const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const { data: profile, error } = await client.from('profiles').select('email').eq('dg_id', dgId).maybeSingle();
     if (error) throw error;

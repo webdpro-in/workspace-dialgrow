@@ -172,11 +172,23 @@ create table if not exists public.channels (
   name text not null,
   description text default '',
   channel_type text not null default 'team',
+  access_scope text not null default 'organization' check (access_scope in ('organization', 'team', 'private')),
+  team_id uuid references public.teams(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 alter table public.channels add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.channels add column if not exists access_scope text not null default 'organization';
+alter table public.channels add column if not exists team_id uuid references public.teams(id) on delete set null;
 create unique index if not exists channels_org_name_key on public.channels (organization_id, lower(name));
+
+create table if not exists public.channel_members (
+  channel_id uuid not null references public.channels(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  added_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (channel_id, user_id)
+);
 
 create table if not exists public.messages (
   id uuid primary key default uuid_generate_v4(),
@@ -319,6 +331,7 @@ alter table public.tasks enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.attendance enable row level security;
 alter table public.channels enable row level security;
+alter table public.channel_members enable row level security;
 alter table public.messages enable row level security;
 alter table public.documents enable row level security;
 alter table public.training_courses enable row level security;
@@ -362,6 +375,24 @@ as $$
     select 1 from public.user_roles ur
     join public.roles r on r.id = ur.role_id
     where ur.user_id = auth.uid() and r.name = 'Main Admin'
+  )
+$$;
+
+create or replace function public.can_access_channel(channel_uuid uuid, viewer_uuid uuid default auth.uid())
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.channels c
+    where c.id = channel_uuid
+      and c.organization_id = (select organization_id from public.profiles where id = viewer_uuid)
+      and (
+        c.access_scope = 'organization'
+        or c.created_by = viewer_uuid
+        or exists (select 1 from public.channel_members cm where cm.channel_id = c.id and cm.user_id = viewer_uuid)
+        or (c.access_scope = 'team' and exists (select 1 from public.team_members tm where tm.team_id = c.team_id and tm.user_id = viewer_uuid))
+        or public.is_org_admin()
+      )
   )
 $$;
 
@@ -422,6 +453,9 @@ create policy "team members visible in scope" on public.team_members for select 
       and (t.lead_id = auth.uid() or public.is_org_admin())
   )
 );
+create policy "visible channel members" on public.channel_members for select to authenticated using (user_id = auth.uid() or public.is_org_admin() or exists (select 1 from public.channels c where c.id = channel_id and c.created_by = auth.uid()));
+create policy "owners add channel members" on public.channel_members for insert to authenticated with check (added_by = auth.uid() and (public.is_org_admin() or exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id() and c.created_by = auth.uid())));
+create policy "owners remove channel members" on public.channel_members for delete to authenticated using (public.is_org_admin() or exists (select 1 from public.channels c where c.id = channel_id and c.created_by = auth.uid()));
 create policy "admins assign team members" on public.team_members for insert to authenticated with check (
   public.is_org_admin() and exists (
     select 1 from public.teams t
@@ -431,13 +465,14 @@ create policy "admins assign team members" on public.team_members for insert to 
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
 create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
 create policy "own attendance update" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
-create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid())));
+create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and (team_id is null or public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid())));
 create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and creator_id = auth.uid());
 create policy "scoped task updates" on public.tasks for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid()));
 create policy "scoped task deletes" on public.tasks for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or creator_id = auth.uid() or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
 create policy "same organization task comments" on public.task_comments for select to authenticated using (exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
 create policy "scoped task comments" on public.task_comments for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
-create policy "same organization channels" on public.channels for select to authenticated using (organization_id = public.current_org_id());
+drop policy if exists "same organization channels" on public.channels;
+create policy "visible channels" on public.channels for select to authenticated using (public.can_access_channel(id, auth.uid()));
 create policy "admin creates channels" on public.channels for insert to authenticated with check (organization_id = public.current_org_id() and public.is_org_admin());
 create policy "leaders create channels" on public.channels for insert to authenticated with check (
   organization_id = public.current_org_id()
@@ -453,10 +488,14 @@ create policy "leaders create channels" on public.channels for insert to authent
 );
 create policy "owners update channels" on public.channels for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 create policy "owners delete channels" on public.channels for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
-create policy "same organization messages" on public.messages for select to authenticated using (exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
-create policy "scoped message creation" on public.messages for insert to authenticated with check (author_id = auth.uid() and exists (select 1 from public.channels c where c.id = channel_id and c.organization_id = public.current_org_id()));
-create policy "same organization documents" on public.documents for select to authenticated using (organization_id = public.current_org_id());
-create policy "same organization document uploads" on public.documents for insert to authenticated with check (organization_id = public.current_org_id() and owner_id = auth.uid());
+drop policy if exists "same organization messages" on public.messages;
+create policy "visible messages" on public.messages for select to authenticated using (public.can_access_channel(channel_id, auth.uid()));
+create policy "scoped message creation" on public.messages for insert to authenticated with check (author_id = auth.uid() and public.can_access_channel(channel_id, auth.uid()));
+drop policy if exists "same organization documents" on public.documents;
+drop policy if exists "same organization document uploads" on public.documents;
+drop policy if exists "scoped message creation" on public.messages;
+create policy "same organization documents" on public.documents for select to authenticated using (organization_id = public.current_org_id() and (channel_id is null or public.can_access_channel(channel_id, auth.uid())));
+create policy "same organization document uploads" on public.documents for insert to authenticated with check (organization_id = public.current_org_id() and owner_id = auth.uid() and (channel_id is null or public.can_access_channel(channel_id, auth.uid())));
 create policy "owners delete documents" on public.documents for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or owner_id = auth.uid()));
 create policy "same organization team updates" on public.team_updates for select to authenticated using (organization_id = public.current_org_id());
 create policy "members create team updates" on public.team_updates for insert to authenticated with check (organization_id = public.current_org_id() and author_id = auth.uid());
@@ -503,7 +542,16 @@ create policy "admins upload social posters" on storage.objects for insert to au
 create policy "admins update social posters" on storage.objects for update to authenticated using (bucket_id = 'social-posts' and public.is_org_admin()) with check (bucket_id = 'social-posts' and public.is_org_admin());
 create policy "admins delete social posters" on storage.objects for delete to authenticated using (bucket_id = 'social-posts' and public.is_org_admin());
 create policy "members upload team files" on storage.objects for insert to authenticated with check (bucket_id = 'team-files' and name like (public.current_org_id()::text || '/%'));
-create policy "members read team files" on storage.objects for select to authenticated using (bucket_id = 'team-files' and name like (public.current_org_id()::text || '/%'));
+drop policy if exists "members read team files" on storage.objects;
+create policy "members read team files" on storage.objects for select to authenticated using (
+  bucket_id = 'team-files'
+  and name like (public.current_org_id()::text || '/%')
+  and exists (
+    select 1 from public.documents d
+    where d.storage_path = name
+      and (d.channel_id is null or public.can_access_channel(d.channel_id, auth.uid()))
+  )
+);
 create policy "owners delete team files" on storage.objects for delete to authenticated using (bucket_id = 'team-files' and (public.is_org_admin() or name like (public.current_org_id()::text || '/' || auth.uid()::text || '/%')));
 
 -- One-time bootstrap for the owner account. It never accepts a role or organization from the browser.
@@ -552,7 +600,7 @@ returns boolean language plpgsql security definer set search_path = public
 as $$
 begin
   if not public.is_org_admin() then raise exception 'Only the Main Admin can assign DG IDs'; end if;
-  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4,}$' then raise exception 'DG ID must use the format dg-####'; end if;
+  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4}$' or substring(lower(new_dg_id) from 4)::integer not between 1 and 10000 then raise exception 'DG ID must be between dg-0001 and dg-10000'; end if;
   if not exists (select 1 from public.profiles where id = target_user_id and organization_id = public.current_org_id()) then raise exception 'Employee is not in the current organization'; end if;
   update public.profiles set dg_id = lower(trim(new_dg_id)) where id = target_user_id;
   return true;
@@ -570,7 +618,7 @@ declare
 begin
   if not public.is_org_admin() then raise exception 'Only the Main Admin can provision employees'; end if;
   org_id := public.current_org_id();
-  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4,}$' then raise exception 'DG ID must use the format dg-####'; end if;
+  if new_dg_id is null or lower(new_dg_id) !~ '^dg-[0-9]{4}$' or substring(lower(new_dg_id) from 4)::integer not between 1 and 10000 then raise exception 'DG ID must be between dg-0001 and dg-10000'; end if;
   if not exists (select 1 from auth.users where id = target_user_id) then raise exception 'Auth account was not created'; end if;
   if exists (select 1 from public.profiles where lower(dg_id) = lower(trim(new_dg_id))) then raise exception 'That DG ID is already assigned'; end if;
   select id into selected_role_id from public.roles where organization_id = org_id and name = role_name and status = 'active';
@@ -601,7 +649,7 @@ declare
 begin
   org_id := public.current_org_id();
   if org_id is null then raise exception 'Workspace is not initialized'; end if;
-  if normalized_dg_id !~ '^dg-[0-9]{4,}$' then raise exception 'DG ID must use the format dg-####'; end if;
+  if normalized_dg_id !~ '^dg-[0-9]{4}$' or substring(normalized_dg_id from 4)::integer not between 1 and 10000 then raise exception 'DG ID must be between dg-0001 and dg-10000'; end if;
   if normalized_name is null or length(normalized_name) < 2 then raise exception 'Employee name is required'; end if;
   if normalized_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then raise exception 'Enter a valid employee email'; end if;
   if target_password is null or length(target_password) < 10 then raise exception 'Password must be at least 10 characters'; end if;
