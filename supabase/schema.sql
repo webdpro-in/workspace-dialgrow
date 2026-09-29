@@ -590,8 +590,9 @@ create policy "admins assign team members" on public.team_members for insert to 
   )
 );
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
-create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
-create policy "own attendance update" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
+drop policy if exists "own attendance insert" on public.attendance;
+drop policy if exists "own attendance update" on public.attendance;
+create policy "admins update attendance" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and public.is_org_admin()) with check (organization_id = public.current_org_id() and public.is_org_admin());
 drop policy if exists "same organization tasks in scope" on public.tasks;
 drop policy if exists "scoped task creation" on public.tasks;
 drop policy if exists "scoped task updates" on public.tasks;
