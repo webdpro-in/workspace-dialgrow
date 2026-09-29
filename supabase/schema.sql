@@ -333,7 +333,7 @@ as $$ select organization_id from public.profiles where id = auth.uid() $$;
 create or replace function public.is_org_admin()
 returns boolean language sql stable security definer set search_path = public
 as $$
-  select lower(auth.jwt() ->> 'email') = 'business@dialgrow.com' and exists (
+  select exists (
     select 1 from public.user_roles ur
     join public.roles r on r.id = ur.role_id
     where ur.user_id = auth.uid() and r.name = 'Main Admin'
@@ -364,6 +364,13 @@ create policy "own or admin role memberships" on public.user_roles for select to
 create policy "admin assigns roles" on public.user_roles for insert to authenticated with check (public.is_org_admin());
 create policy "admin updates role assignments" on public.user_roles for update to authenticated using (public.is_org_admin()) with check (public.is_org_admin());
 create policy "same organization teams" on public.teams for select to authenticated using (organization_id = public.current_org_id());
+create policy "team members visible in scope" on public.team_members for select to authenticated using (
+  user_id = auth.uid() or exists (
+    select 1 from public.teams t
+    where t.id = team_id and t.organization_id = public.current_org_id()
+      and (t.lead_id = auth.uid() or public.is_org_admin())
+  )
+);
 create policy "own or admin attendance" on public.attendance for select to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));
 create policy "own attendance insert" on public.attendance for insert to authenticated with check (organization_id = public.current_org_id() and user_id = auth.uid());
 create policy "own attendance update" on public.attendance for update to authenticated using (organization_id = public.current_org_id() and (user_id = auth.uid() or public.is_org_admin()));

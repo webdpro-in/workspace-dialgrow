@@ -30,10 +30,14 @@ Deno.serve(async (request) => {
     const callerClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
     const { data: { user: caller } } = await callerClient.auth.getUser();
     if (!caller) throw new Error('Not authenticated');
-    const { data: callerProfile } = await adminClient.from('profiles').select('organization_id').eq('id', caller.id).single();
-    const { data: callerRoles } = await adminClient.from('user_roles').select('roles(name)').eq('user_id', caller.id);
-    const isAdmin = callerRoles?.some((item: { roles?: { name?: string } }) => item.roles?.name === 'Main Admin');
-    if (caller.email?.toLowerCase() !== 'business@dialgrow.com' || !isAdmin) throw new Error('Only the Main Admin owner can create employee accounts');
+    const { data: callerProfile, error: callerProfileError } = await adminClient.from('profiles').select('organization_id').eq('id', caller.id).single();
+    if (callerProfileError || !callerProfile?.organization_id) throw new Error('Your workspace profile is not initialized');
+    const { data: callerRoles, error: callerRolesError } = await adminClient.from('user_roles').select('roles(name, dashboard_template)').eq('user_id', caller.id);
+    if (callerRolesError) throw callerRolesError;
+    const roleRecords = (callerRoles || []).map((item: { roles?: { name?: string; dashboard_template?: string } }) => item.roles).filter(Boolean);
+    const isMainAdmin = roleRecords.some((role) => role?.name === 'Main Admin');
+    const leadRole = roleRecords.find((role) => ['Team Lead', 'Technical Lead', 'Operations Lead'].includes(role?.name || ''));
+    if (!isMainAdmin && !leadRole) throw new Error('Only a Main Admin or team lead can create employee accounts');
 
     const { email: rawEmail, dgId: rawDgId, password, fullName, roleName, teamId } = await request.json();
     const dgId = rawDgId?.trim().toLowerCase();
@@ -42,17 +46,35 @@ Deno.serve(async (request) => {
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid notification email or leave it blank');
     if (!password || password.length < 10) throw new Error('Temporary password must be at least 10 characters');
     if (!fullName || !roleName) throw new Error('Full name and role are required');
+    const orgId = callerProfile.organization_id;
+    const { data: targetRole, error: targetRoleError } = await adminClient.from('roles').select('id, name, dashboard_template').eq('organization_id', orgId).eq('name', roleName).eq('status', 'active').single();
+    if (targetRoleError || !targetRole) throw new Error('Selected role is not available');
+    if (!isMainAdmin && targetRole.name === 'Main Admin') throw new Error('Team leads cannot create Main Admin accounts');
+    if (!isMainAdmin && !teamId) throw new Error('Select the team this employee will join');
+    if (teamId) {
+      const { data: team, error: teamError } = await adminClient.from('teams').select('id, organization_id, lead_id').eq('id', teamId).eq('organization_id', orgId).single();
+      if (teamError || !team) throw new Error('Selected team is not in your workspace');
+      if (!isMainAdmin && team.lead_id !== caller.id) throw new Error('You can only create employees for a team you lead');
+    }
     const { data: existingProfile } = await adminClient.from('profiles').select('id').eq('dg_id', dgId).maybeSingle();
     if (existingProfile) throw new Error('That DG ID is already assigned. Choose another one.');
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: fullName, role_name: roleName, must_change_password: true } });
     if (createError) throw createError;
     const userId = created.user.id;
-    const orgId = callerProfile.organization_id;
-    await adminClient.from('profiles').insert({ id: userId, organization_id: orgId, dg_id: dgId, full_name: fullName, email, initials: fullName.split(/\s+/).map((part: string) => part[0]).join('').slice(0, 2).toUpperCase(), job_title: roleName, status: 'active' });
-    const { data: role } = await adminClient.from('roles').select('id').eq('organization_id', orgId).eq('name', roleName).single();
-    if (role) await adminClient.from('user_roles').insert({ user_id: userId, role_id: role.id, is_primary: true });
-    if (teamId) await adminClient.from('team_members').insert({ team_id: teamId, user_id: userId });
+    try {
+      const { error: profileError } = await adminClient.from('profiles').insert({ id: userId, organization_id: orgId, dg_id: dgId, full_name: fullName, email, initials: fullName.split(/\s+/).map((part: string) => part[0]).join('').slice(0, 2).toUpperCase(), job_title: roleName, status: 'active' });
+      if (profileError) throw profileError;
+      const { error: roleError } = await adminClient.from('user_roles').insert({ user_id: userId, role_id: targetRole.id, is_primary: true });
+      if (roleError) throw roleError;
+      if (teamId) {
+        const { error: membershipError } = await adminClient.from('team_members').insert({ team_id: teamId, user_id: userId });
+        if (membershipError) throw membershipError;
+      }
+    } catch (provisionError) {
+      await adminClient.auth.admin.deleteUser(userId);
+      throw provisionError;
+    }
     await adminClient.from('audit_logs').insert({ organization_id: orgId, actor_id: caller.id, action: 'employee_created', object_type: 'profile', object_id: userId, metadata: { dgId, email, roleName } });
     const delivery = rawEmail ? await sendCredentialEmail({ to: email, dgId, fullName, roleName, password }) : { sent: false };
     return new Response(JSON.stringify({ ok: true, userId, dgId, email, emailSent: delivery.sent, message: delivery.sent ? 'Employee account created and credentials emailed' : 'Employee account created; share the DG ID and password securely' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
