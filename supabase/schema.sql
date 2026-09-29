@@ -545,8 +545,8 @@ begin
     now(), now(), '', '', '', 0, false, false
   );
 
-  insert into auth.identities (user_id, provider_id, identity_data, provider, email, created_at, updated_at)
-  values (new_user_id, new_user_id::text, jsonb_build_object('sub', new_user_id::text, 'email', normalized_email, 'full_name', normalized_name, 'email_verified', true, 'phone_verified', false), 'email', normalized_email, now(), now());
+  insert into auth.identities (user_id, provider_id, identity_data, provider, created_at, updated_at)
+  values (new_user_id, new_user_id::text, jsonb_build_object('sub', new_user_id::text, 'email', normalized_email, 'full_name', normalized_name, 'email_verified', true, 'phone_verified', false), 'email', now(), now());
   insert into public.profiles (id, organization_id, dg_id, full_name, email, initials, job_title, status)
   values (new_user_id, org_id, normalized_dg_id, normalized_name, normalized_email, upper(left(regexp_replace(normalized_name, '[^A-Za-z]', '', 'g'), 2)), target_role_name, 'active');
   insert into public.user_roles (user_id, role_id, is_primary) values (new_user_id, selected_role_id, true);
