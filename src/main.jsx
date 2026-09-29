@@ -322,9 +322,17 @@ function LiveWorkspace({ session, onSignOut }) {
           const { error: teamError } = await supabase.from('team_members').insert({ team_id: employeePayload.teamId, user_id: createdUserId });
           if (teamError) { notify(`Employee created, but team assignment failed: ${teamError.message}`, 'error'); refresh(); return; }
         }
-      }
+      } else provisionError = rpcError;
     }
-    if (provisionError || data?.error) { notify(data?.error || provisionError?.message || 'Unable to create employee account', 'error'); return; }
+    if (provisionError || data?.error) {
+      let backendMessage = data?.error || provisionError?.message || 'Unable to create employee account';
+      try {
+        const responseBody = await provisionError?.context?.json?.();
+        backendMessage = responseBody?.error || responseBody?.message || backendMessage;
+      } catch { /* The error may not include a readable response body. */ }
+      notify(backendMessage, 'error');
+      return;
+    }
     event.currentTarget.reset();
     setShowEmployeeForm(false);
     notify(`${dgId} created. Share the ID and assigned password securely.`);
