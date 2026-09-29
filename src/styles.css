@@ -179,6 +179,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .approval-row small { color: #8d9a91; font-size: 9px; }
 .approval-hint { display: flex; align-items: center; gap: 7px; margin: 0 20px 12px; padding: 9px 11px; color: #5f7665; border: 1px solid #dbe9dd; border-radius: 7px; background: #f4faf5; font-size: 9px; }
 .approval-hint svg { color: #20a857; }
+.role-hero-actions > button, .checkin-glow-button { min-height: 46px; padding: 0 22px; border: 1px solid #1ed760; border-radius: 9px; background: #20c965; color: #07351a; font-weight: 800; box-shadow: 0 0 0 4px rgba(32, 201, 101, .12), 0 0 24px rgba(32, 201, 101, .36); transition: transform .18s ease, box-shadow .18s ease; }
+.role-hero-actions > button:hover, .checkin-glow-button:hover { transform: translateY(-1px); box-shadow: 0 0 0 5px rgba(32, 201, 101, .16), 0 0 32px rgba(32, 201, 101, .5); }
+.checkin-gate { display: flex; align-items: center; gap: 15px; padding: 22px; border: 1px solid #d4ead8; border-radius: 12px; background: linear-gradient(135deg, #f4fbf5, #fbfefb); }
+.checkin-gate-icon { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px; color: #158743; background: #dff7e5; }
+.checkin-gate h3 { margin: 3px 0 5px; color: #254a31; font-size: 17px; }
+.checkin-gate p { max-width: 560px; margin: 0; color: #6d8172; font-size: 11px; line-height: 1.6; }
+.checkin-gate .checkin-glow-button { margin-left: auto; white-space: nowrap; }
+.live-top-signout { display: inline-flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #e4ece5; border-radius: 7px; background: #fff; color: #6b7a70; font-size: 10px; cursor: pointer; }
+.live-top-signout:hover { border-color: #f0b7b2; color: #b64a42; }
+.attendance-history { margin-top: 24px; }
+.attendance-history .live-panel-head { padding-bottom: 9px; }
+.status-dot-working { background: #20b85b; box-shadow: 0 0 0 4px rgba(32,184,91,.12); }
+.admin-operations-panel { margin-top: 18px; }
+.admin-operations-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 20px 20px; }
+.admin-operation-card { padding: 14px; border: 1px solid #e5eee6; border-radius: 9px; background: #fbfefb; }
+.admin-operation-card > div { display: flex; flex-direction: column; gap: 5px; }
+.admin-operation-card strong { display: flex; align-items: center; gap: 5px; color: #314b39; font-size: 11px; }
+.admin-operation-card small, .admin-operation-card p { color: #7e9083; font-size: 9px; line-height: 1.5; }
+.admin-operation-card p { margin: 12px 0 0; color: #526759; }
+.admin-operation-card p b { color: #2c9a50; }
+.muted-copy { color: #a2ada4 !important; }
+@media (max-width: 720px) { .checkin-gate { align-items: flex-start; flex-wrap: wrap; } .checkin-gate .checkin-glow-button { width: 100%; margin-left: 0; } .admin-operations-grid { grid-template-columns: 1fr; } .live-top-signout { display: none; } }
 .icon-danger { display: inline-grid; place-items: center; padding: 3px; border: 0; background: transparent; color: #bd5149; cursor: pointer; }
 .post-card-foot { align-items: center; gap: 10px; }
 .post-card-foot > button { white-space: nowrap; }

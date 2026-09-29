@@ -22,12 +22,18 @@ export async function loadWorkspace(user) {
   const profile = profileResult.data;
   const memberships = membershipsResult.data || [];
   const role = memberships.find((item) => item.is_primary)?.roles || memberships[0]?.roles || roleDefaults[user.user_metadata?.role_name] || roleDefaults['Customer Success'];
+  const attendanceQuery = role?.name === 'Main Admin'
+    ? supabase.from('attendance').select('*').order('work_date', { ascending: false }).order('check_in_at', { ascending: false }).limit(500)
+    : supabase.from('attendance').select('*').eq('user_id', user.id).order('work_date', { ascending: false }).limit(90);
+  const messagesQuery = role?.name === 'Main Admin'
+    ? supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(500)
+    : Promise.resolve({ data: [], error: null });
 
-  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult] = await Promise.all([
+  const [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult, messagesResult] = await Promise.all([
     supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('teams').select('*').order('name'),
     supabase.from('channels').select('*').order('created_at'),
-    supabase.from('attendance').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    attendanceQuery,
     supabase.from('audit_logs').select('*').eq('actor_id', user.id).eq('action', 'login').order('created_at', { ascending: false }).limit(8),
     supabase.from('roles').select('*').order('name'),
     supabase.from('profiles').select('id, dg_id, full_name, email, job_title, avatar_color, status, employee_creation_limit, created_by').order('full_name'),
@@ -38,20 +44,23 @@ export async function loadWorkspace(user) {
     supabase.from('documents').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('team_updates').select('*').order('created_at', { ascending: false }).limit(100),
     supabase.from('employee_creation_requests').select('*').order('created_at', { ascending: false }).limit(50),
+    messagesQuery,
   ]);
 
-  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult].find((result) => result.error);
+  const firstError = [tasksResult, teamsResult, channelsResult, attendanceResult, auditResult, rolesResult, membersResult, memberRolesResult, teamMembersResult, channelMembersResult, postsResult, documentsResult, updatesResult, creationRequestsResult, messagesResult].find((result) => result.error);
   if (firstError) throw firstError.error;
 
   const members = (membersResult.data || []).map((member) => ({ ...member, role: memberRolesResult.data?.find((item) => item.user_id === member.id)?.roles || null }));
   const memberById = new Map(members.map((member) => [member.id, member]));
   const teamById = new Map((teamsResult.data || []).map((team) => [team.id, team]));
+  const attendanceHistory = attendanceResult.data || [];
   return {
     profile: { ...(profile || {}), full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Workspace member', email: user.email, role },
     tasks: (tasksResult.data || []).map((task) => ({ ...task, creator: memberById.get(task.creator_id) || null, assignee: memberById.get(task.assignee_id) || null, team_name: teamById.get(task.team_id)?.name || null })),
     teams: teamsResult.data || [],
     channels: (channelsResult.data || []).map((channel) => ({ ...channel, display_name: channel.name?.toLowerCase() === 'general' ? 'Campfire' : channel.name })),
-    attendance: attendanceResult.data || null,
+    attendance: attendanceHistory.find((entry) => entry.user_id === user.id) || null,
+    attendanceHistory,
     logins: auditResult.data || [],
     roles: rolesResult.data || [],
     members,
@@ -61,6 +70,7 @@ export async function loadWorkspace(user) {
     documents: documentsResult.data || [],
     updates: updatesResult.data || [],
     creationRequests: creationRequestsResult.data || [],
+    messages: messagesResult.data || [],
   };
 }
 
@@ -75,11 +85,9 @@ export async function recordLogin(user, organizationId) {
   });
 }
 
-export async function updateAttendance({ userId, organizationId, status, sessionId }) {
+export async function updateAttendance({ action, sessionId }) {
   if (!supabase) throw new Error('Supabase is not configured.');
-  const { data: existing } = await supabase.from('attendance').select('id').eq('user_id', userId).eq('status', 'working').order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (status === 'working' && existing?.id) return supabase.from('attendance').update({ status, check_in_at: new Date().toISOString(), session_id: sessionId }).eq('id', existing.id).select().single();
-  return supabase.from('attendance').insert({ organization_id: organizationId, user_id: userId, status, check_in_at: status === 'working' ? new Date().toISOString() : null, check_out_at: status === 'checked_out' ? new Date().toISOString() : null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, session_id: sessionId }).select().single();
+  return supabase.rpc('record_attendance_event', { action, timezone_name: Intl.DateTimeFormat().resolvedOptions().timeZone, event_session_id: sessionId });
 }
 
 export async function createTask({ organizationId, creatorId, title, description, priority, assigneeId, dueDate, noteColor, repeatRule, teamId }) {
