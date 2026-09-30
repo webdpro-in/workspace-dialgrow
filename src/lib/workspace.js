@@ -38,7 +38,7 @@ export async function loadWorkspace(user) {
     supabase.from('roles').select('*').order('name'),
     supabase.from('profiles').select('id, dg_id, full_name, email, job_title, avatar_color, status, employee_creation_limit, created_by').order('full_name'),
     supabase.from('user_roles').select('user_id, is_primary, roles(id, name)').eq('is_primary', true),
-    supabase.from('team_members').select('team_id, user_id'),
+    supabase.from('team_members').select('team_id, user_id, joined_at'),
     supabase.from('channel_members').select('channel_id, user_id'),
     supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
     supabase.from('documents').select('*').order('created_at', { ascending: false }).limit(100),

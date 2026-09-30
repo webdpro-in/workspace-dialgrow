@@ -145,6 +145,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .team-detail-members span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px 4px 4px; border-radius: 999px; color: #5c7062; background: #f2f8f3; font-size: 8px; }
 .team-detail-members small { color: #94a198; font-size: 9px; }
 .live-chat-head-actions { display: flex; align-items: center; gap: 10px; }
+.live-message-content { position: relative; min-width: 0; }
+.live-message-meta { display: flex; align-items: center; gap: 8px; }
+.live-message-meta span { color: #9aa79d; font-size: 8px; }
+.live-message-actions { display: flex; gap: 4px; margin-top: 5px; opacity: 0; transition: opacity .15s ease; }
+.live-message:hover .live-message-actions, .live-message:focus-within .live-message-actions { opacity: 1; }
+.live-message-actions button { display: inline-grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 1px solid #dce8de; border-radius: 5px; background: #fff; color: #789084; cursor: pointer; }
+.live-message-actions button:hover { color: #28734d; border-color: #9bd9ad; }
+.live-message-edit { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.live-message-edit input { min-width: 220px; padding: 7px 8px; border: 1px solid #b9d9c1; border-radius: 6px; outline: 0; color: #32463a; font: inherit; font-size: 10px; }
+.live-message-edit > div { display: flex; gap: 5px; }
+.live-message-edit .quiet-action, .live-message-edit .live-action { min-height: 28px; padding: 0 8px; font-size: 9px; }
 .group-settings-modal { max-width: 560px; }
 .group-settings-modal form { display: flex; flex-direction: column; gap: 12px; }
 .group-settings-members, .group-settings-add { padding: 12px; border: 1px solid #e2ebe3; border-radius: 8px; background: #fbfefb; }

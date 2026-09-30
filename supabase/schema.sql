@@ -109,8 +109,11 @@ create table if not exists public.team_members (
   team_id uuid not null references public.teams(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   membership_scope jsonb not null default '{}'::jsonb,
+  joined_at timestamptz not null default now(),
   primary key (team_id, user_id)
 );
+
+alter table public.team_members add column if not exists joined_at timestamptz not null default now();
 
 create table if not exists public.employee_creation_requests (
   id uuid primary key default uuid_generate_v4(),
@@ -233,8 +236,12 @@ create table if not exists public.messages (
   body text not null,
   parent_id uuid references public.messages(id) on delete set null,
   task_id uuid references public.tasks(id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  edited_at timestamptz
 );
+
+alter table public.messages add column if not exists edited_at timestamptz;
+alter table public.messages replica identity full;
 
 create table if not exists public.documents (
   id uuid primary key default uuid_generate_v4(),
@@ -548,6 +555,24 @@ as $$
   )
 $$;
 
+create or replace function public.can_view_message(message_channel_id uuid, message_created_at timestamptz, viewer_uuid uuid default auth.uid())
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select viewer_uuid is not null and viewer_uuid = auth.uid() and exists (
+    select 1 from public.profiles viewer
+    join public.channels c on c.id = message_channel_id and c.organization_id = viewer.organization_id
+    where viewer.id = viewer_uuid and (
+      public.is_org_admin()
+      or c.created_by = viewer_uuid
+      or (c.access_scope = 'organization' and message_created_at >= greatest(c.created_at, viewer.created_at))
+      or exists (select 1 from public.channel_members cm where cm.channel_id = c.id and cm.user_id = viewer_uuid and message_created_at >= cm.created_at)
+      or exists (select 1 from public.team_members tm where tm.team_id = c.team_id and tm.user_id = viewer_uuid and message_created_at >= tm.joined_at)
+    )
+  )
+$$;
+revoke all on function public.can_view_message(uuid, timestamptz, uuid) from public;
+grant execute on function public.can_view_message(uuid, timestamptz, uuid) to authenticated;
+
 create or replace function public.protect_workday_hours()
 returns trigger language plpgsql security definer set search_path = public
 as $$
@@ -634,8 +659,14 @@ create policy "leaders create channels" on public.channels for insert to authent
 create policy "owners update channels" on public.channels for update to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid())) with check (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 create policy "owners delete channels" on public.channels for delete to authenticated using (organization_id = public.current_org_id() and (public.is_org_admin() or created_by = auth.uid()));
 drop policy if exists "same organization messages" on public.messages;
-create policy "visible messages" on public.messages for select to authenticated using (public.can_access_channel(channel_id, auth.uid()));
+drop policy if exists "visible messages" on public.messages;
+drop policy if exists "scoped message creation" on public.messages;
+drop policy if exists "authors update messages" on public.messages;
+drop policy if exists "authors delete messages" on public.messages;
+create policy "visible messages" on public.messages for select to authenticated using (public.can_view_message(channel_id, created_at, auth.uid()));
 create policy "scoped message creation" on public.messages for insert to authenticated with check (author_id = auth.uid() and public.can_access_channel(channel_id, auth.uid()));
+create policy "authors update messages" on public.messages for update to authenticated using (public.can_access_channel(channel_id, auth.uid()) and (author_id = auth.uid() or public.is_org_admin())) with check (public.can_access_channel(channel_id, auth.uid()) and (author_id = auth.uid() or public.is_org_admin()));
+create policy "authors delete messages" on public.messages for delete to authenticated using (public.can_access_channel(channel_id, auth.uid()) and (author_id = auth.uid() or public.is_org_admin()));
 drop policy if exists "same organization documents" on public.documents;
 drop policy if exists "same organization document uploads" on public.documents;
 drop policy if exists "scoped message creation" on public.messages;
