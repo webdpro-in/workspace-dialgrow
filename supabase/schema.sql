@@ -463,15 +463,10 @@ $$;
 create or replace function public.can_create_common_note()
 returns boolean language sql stable security definer set search_path = public
 as $$
-  select public.is_org_admin() or exists (
-    select 1
-    from public.user_roles ur
-    join public.roles r on r.id = ur.role_id
-    where ur.user_id = auth.uid()
-      and ur.is_primary = true
-      and r.name in ('Customer Success', 'Full Stack Developer', 'Main Admin', 'Operations Lead', 'Team Lead', 'Technical Lead')
-  )
+  select auth.uid() is not null and public.current_org_id() is not null
 $$;
+revoke all on function public.can_create_common_note() from public, anon;
+grant execute on function public.can_create_common_note() to authenticated;
 
 create or replace function public.can_manage_channel(channel_uuid uuid)
 returns boolean language sql stable security definer set search_path = public
@@ -643,7 +638,7 @@ drop policy if exists "scoped task creation" on public.tasks;
 drop policy if exists "scoped task updates" on public.tasks;
 drop policy if exists "scoped task deletes" on public.tasks;
 create policy "same organization tasks in scope" on public.tasks for select to authenticated using (organization_id = public.current_org_id() and public.is_checked_in_today() and (team_id is null or public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid()) or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
-create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and public.is_checked_in_today() and creator_id = auth.uid() and ((team_id is null and public.can_create_common_note()) or (team_id is not null and (public.is_org_admin() or exists (select 1 from public.team_members tm where tm.team_id = tasks.team_id and tm.user_id = auth.uid()) or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())))));
+create policy "scoped task creation" on public.tasks for insert to authenticated with check (organization_id = public.current_org_id() and creator_id = auth.uid() and (team_id is null or exists (select 1 from public.teams t where t.id = tasks.team_id and t.organization_id = public.current_org_id())));
 create policy "scoped task updates" on public.tasks for update to authenticated using (organization_id = public.current_org_id() and public.is_checked_in_today() and (public.is_org_admin() or creator_id = auth.uid() or assignee_id = auth.uid() or reviewer_id = auth.uid())) with check (organization_id = public.current_org_id() and public.is_checked_in_today());
 create policy "scoped task deletes" on public.tasks for delete to authenticated using (organization_id = public.current_org_id() and public.is_checked_in_today() and (public.is_org_admin() or creator_id = auth.uid() or exists (select 1 from public.teams t where t.id = tasks.team_id and t.lead_id = auth.uid())));
 create policy "same organization task comments" on public.task_comments for select to authenticated using (exists (select 1 from public.tasks t where t.id = task_id and t.organization_id = public.current_org_id()));
