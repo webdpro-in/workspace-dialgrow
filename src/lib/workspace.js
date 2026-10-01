@@ -55,12 +55,14 @@ export async function loadWorkspace(user) {
   const memberById = new Map(members.map((member) => [member.id, member]));
   const teamById = new Map((teamsResult.data || []).map((team) => [team.id, team]));
   const attendanceHistory = attendanceResult.data || [];
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: profile?.timezone || 'Asia/Kolkata' }).format(new Date());
+  const currentAttendance = attendanceHistory.find((entry) => entry.user_id === user.id && entry.work_date === today) || null;
   return {
     profile: { ...(profile || {}), full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Workspace member', email: user.email, role },
     tasks: (tasksResult.data || []).map((task) => ({ ...task, creator: memberById.get(task.creator_id) || null, assignee: memberById.get(task.assignee_id) || null, team_name: teamById.get(task.team_id)?.name || null })),
     teams: teamsResult.data || [],
     channels: (channelsResult.data || []).map((channel) => ({ ...channel, display_name: channel.name?.toLowerCase() === 'general' ? 'Campfire' : channel.name })),
-    attendance: attendanceHistory.find((entry) => entry.user_id === user.id) || null,
+    attendance: currentAttendance,
     attendanceHistory,
     logins: auditResult.data || [],
     roles: rolesResult.data || [],
