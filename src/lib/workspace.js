@@ -99,7 +99,7 @@ export async function updateAttendance({ action, sessionId }) {
 export async function createTask({ organizationId, creatorId, title, description, priority, assigneeId, dueDate, noteColor, repeatRule, teamId }) {
   if (!supabase) throw new Error('Supabase is not configured.');
   const safePriority = ['low', 'medium', 'high', 'urgent'].includes(priority) ? priority : 'medium';
-  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, team_id: teamId || null, reference: `DG-${Date.now().toString().slice(-6)}`, title, description: description || '', priority: safePriority, due_date: dueDate || null, repeat_rule: repeatRule || 'once', note_color: noteColor || 'sun', status: 'assigned', task_type: 'operations', progress: 0 }).select().single();
+  return supabase.from('tasks').insert({ organization_id: organizationId, creator_id: creatorId, assignee_id: assigneeId || creatorId, team_id: teamId || null, reference: `DG-${Date.now().toString().slice(-6)}`, title, description: description || '', priority: safePriority, due_date: dueDate || null, repeat_rule: repeatRule || 'once', note_color: noteColor || 'sun', status: 'assigned', task_type: 'operations', progress: 0 });
 }
 
 export async function sendMessage({ channelId, authorId, body }) {
